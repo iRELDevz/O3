@@ -59,6 +59,9 @@ ID_CPU         equ 105
 ID_RAM         equ 106
 ID_ENERGY      equ 107
 ID_UNAVAILABLE equ 108
+ID_MISC        equ 109
+ID_SPECIAL     equ 180
+ID_LICENSE     equ 184
 ID_PREV        equ 113
 ID_NEXT        equ 114
 ID_SEARCH      equ 115
@@ -101,7 +104,8 @@ MAX_ITEMS      equ ITEM_COUNT+DYNAMIC_LIMIT
 CATEGORY_COUNT equ 7
 ENERGY_TAB     equ 6
 UNAVAILABLE_TAB equ CATEGORY_COUNT
-TAB_COUNT      equ CATEGORY_COUNT+1
+MISC_TAB       equ CATEGORY_COUNT+1
+TAB_COUNT      equ CATEGORY_COUNT+2
 
 BG             equ 0
 PANEL          equ 1
@@ -276,8 +280,8 @@ pickApp db "Pilih aplikasi",0
 availableText   db "Tersedia",0
 fmtScanResult   db "%u tersedia  /  %u unavailable  /  %u error",0
 
-tabTitles:      dq emulatorTab, windowsTab, backgroundTab, explorerTab, cpuTab, ramTab, energyTab, unavailableTab
-tabHeadings:    dq emHeading, winHeading, bgHeading, explorerHeading, cpuHeading, ramHeading, energyHeading, unavailableTab
+tabTitles:      dq emulatorTab, windowsTab, backgroundTab, explorerTab, cpuTab, ramTab, energyTab, unavailableTab, miscTab
+tabHeadings:    dq emHeading, winHeading, bgHeading, explorerHeading, cpuHeading, ramHeading, energyHeading, unavailableTab, miscHeading
 statusLabels:   dq manualStatus, toggleOn, toggleOff, inheritedStatus
                 dq unavailableStatus, failedStatus, pendingStatus, unknownApplyStatus, applyingStatus
 defaultSource   db "Default aplikasi atau Windows",0
@@ -541,6 +545,7 @@ window_proc:
     lea     rdx, [scanSummary]
     call    SetWindowTextA
 .create_controls:
+    call    misc_init
     call    create_ui
     call    layout_checked_tabs
     call    rebuild_view
@@ -559,6 +564,7 @@ window_proc:
     cmp     dword [catalogueReady], 0
     je      .skip_tick
     enter_frame
+    call    misc_tick
     call    scan_memory
     lea     rcx, [itemStates]
     lea     rdx, [itemSources]
@@ -699,12 +705,14 @@ window_proc:
     je      .restore
     cmp     eax, ID_EMULATOR
     jb      .handled
-    cmp     eax, ID_UNAVAILABLE
+    cmp     eax, ID_MISC
     jbe     .tab
     cmp     eax, ID_PREV
     je      .prev
     cmp     eax, ID_NEXT
     je      .next
+    cmp     eax, ID_SPECIAL
+    jae     .special
     cmp     eax, ID_FIRST_ON
     jae     .toggle
     sub     eax, ID_FIRST_ROW
@@ -798,6 +806,24 @@ window_proc:
     mov     [pageOffset], eax
     mov     dword [activeRow], 0
     jmp     .update
+.special:
+    cmp     eax, ID_LICENSE
+    jne     .special_toggle
+    mov     rcx, [mainWindow]
+    lea     rdx, [licenseText]
+    lea     r8, [licenseTitle]
+    mov     r9d, 0x40
+    call    MessageBoxA
+    jmp     .handled
+.special_toggle:
+    cmp     dword [scanBusy], 0
+    jne     .handled
+    sub     eax, ID_SPECIAL
+    cmp     eax, FEATURES
+    jae     .handled
+    mov     ecx, eax
+    call    misc_toggle
+    jmp     .update
 .toggle:
     cmp     dword [scanBusy], 0
     jne     .handled
@@ -826,6 +852,7 @@ window_proc:
 .destroy:
     enter_frame
     call    o3_release_efficiency
+    call    misc_shutdown
     mov     rcx, [scanThread]
     test    rcx, rcx
     jz      .dispose_ui
@@ -905,6 +932,11 @@ create_ui:
     add_button 0, TAB_TOP, 160, TAB_HEIGHT, ID_RAM, ramTab, tabButtons+40
     add_button 0, TAB_TOP, 160, TAB_HEIGHT, ID_ENERGY, energyTab, tabButtons+48
     add_button 0, TAB_TOP, 160, TAB_HEIGHT, ID_UNAVAILABLE, unavailableTab, tabButtons+56
+    add_button 0, TAB_TOP, 160, TAB_HEIGHT, ID_MISC, miscTab, tabButtons+64
+    add_button 870, 223, SWITCH_WIDTH, SWITCH_HEIGHT, ID_SPECIAL, toggleOn, specialButtons
+    add_button 870, 281, SWITCH_WIDTH, SWITCH_HEIGHT, ID_SPECIAL+1, toggleOn, specialButtons+8
+    add_button 870, 339, SWITCH_WIDTH, SWITCH_HEIGHT, ID_SPECIAL+2, toggleOn, specialButtons+16
+    add_button 822, 458, 128, 26, ID_LICENSE, licenseButtonText, specialButtons+24
     mov     dword [rsp+96], 0
 .row:
     mov     ecx, [rsp+96]
@@ -1167,6 +1199,7 @@ scan_worker:
     lea     r8, [itemAvailability]
     call    o3_restore
     mov     [restoreResult], rax
+    call    misc_restore_all
 .ready:
     mov     rcx, [mainWindow]
     mov     edx, WM_SCAN_READY
@@ -1271,7 +1304,7 @@ recount_catalogue:
 
 layout_checked_tabs:
     enter_frame
-    mov     ecx, 1
+    mov     ecx, 2
     xor     eax, eax
     lea     rdx, [categoryTotals]
 .count:
@@ -1297,7 +1330,7 @@ layout_checked_tabs:
     cmp     dword [catalogueReady], 0
     je      .hidden
     cmp     eax, UNAVAILABLE_TAB
-    je      .visible
+    jae     .visible
     lea     rdx, [categoryTotals]
     cmp     dword [rdx+rax*4], 0
     jne     .visible
@@ -1335,7 +1368,7 @@ rebuild_checked_view:
     call    recount_catalogue
     mov     eax, [activeTab]
     cmp     eax, UNAVAILABLE_TAB
-    je      .layout
+    jae     .layout
     lea     rdx, [categoryTotals]
     cmp     dword [rdx+rax*4], 0
     jne     .layout
@@ -1390,6 +1423,8 @@ rebuild_view:
     test    eax, eax
     jnz     .candidate
     mov     eax, [activeTab]
+    cmp     eax, MISC_TAB
+    je      .done
     cmp     eax, UNAVAILABLE_TAB
     je      .candidate
     lea     rdx, [catalogue_starts]
@@ -1554,6 +1589,9 @@ update_controls:
     call    redraw
     mov     rcx, [tabButtons+56]
     call    redraw
+    mov     rcx, [tabButtons+64]
+    call    redraw
+    call    misc_show
     mov     rcx, [refreshButton]
     call    redraw
     mov     rcx, [restoreButton]
@@ -1891,6 +1929,11 @@ paint_summary:
     leave_frame
 
 paint_grid:
+    cmp     dword [activeTab], MISC_TAB
+    jne     .list
+    cmp     byte [searchText], 0
+    je      paint_misc
+.list:
     enter_frame
     frame_panel 23, 142, 977, 501
     frame_mark 236, 246
@@ -2031,11 +2074,11 @@ load_view_state:
     test    eax, eax
     jnz     .done
     mov     eax, [viewState]
-    cmp     eax, UNAVAILABLE_TAB
+    cmp     eax, MISC_TAB
     ja      .done
     lea     rdx, [categoryTotals]
     cmp     eax, UNAVAILABLE_TAB
-    je      .tab_ok
+    jae     .tab_ok
     cmp     dword [rdx+rax*4], 0
     je      .done
 .tab_ok:
@@ -2061,6 +2104,14 @@ paint_effect:
     frame_panel 23, 624, 977, 684
     box     LOG_BG, 34, 632, 966, 676
     text_label 42, 634, 160, 652, effectHeading, INK, fontStrong, LABEL_MIDDLE
+    cmp     dword [activeTab], MISC_TAB
+    jne     .list
+    mov     eax, [miscFocus]
+    lea     rdx, [spEffects]
+    mov     rax, [rdx+rax*8]
+    text_pointer 162, 634, 958, 674, rax, SOFT, fontSmall, LABEL_WRAP
+    leave_frame
+.list:
     call    selected_feature
     test    rax, rax
     jz      .none
@@ -2162,6 +2213,10 @@ draw_button:
     mov     [rsp+112], edx
     mov     edx, [rcx+52]
     mov     [rsp+116], edx
+    cmp     eax, ID_LICENSE
+    je      .license
+    cmp     eax, ID_SPECIAL
+    jae     .special
     cmp     eax, ID_FIRST_ON
     jae     .switch
     cmp     eax, ID_FIRST_ROW
@@ -2224,6 +2279,23 @@ draw_button:
 .minimize_glyph:
     box     KNOB_LIGHT, 9, 18, 17, 20
     jmp     .focus
+.license:
+    mov     r8d, BUTTON
+    lea     rdx, [licenseButtonText]
+    jmp     .standard
+.special:
+    sub     eax, ID_SPECIAL
+    mov     ecx, 2
+    bt      dword [specialBits], eax
+    jnc     .special_bg
+    mov     ecx, 1
+.special_bg:
+    mov     dword [switchEnergy], 0
+    mov     r8d, ROW
+    cmp     eax, [miscFocus]
+    jne     .paint_switch
+    mov     r8d, ROW_SELECTED
+    jmp     .paint_switch
 .switch:
     mov     ecx, eax
     sub     ecx, ID_FIRST_ON
@@ -2314,3 +2386,4 @@ draw_button:
 
 %include "effects.inc"
 %include "status.inc"
+%include "misc.inc"
