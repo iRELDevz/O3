@@ -1,21 +1,23 @@
-extern o3_item_kind, o3_item_key
+extern o3_item_kind, o3_item_key, energy_saved
 
 section .rdata
 
 effectFormat    db "Jika dimatikan: %s",0
+savedFormat     db "200 - ECO aktif. RAM dilepas %u MB, prioritas CPU Idle + EcoQoS.",0
 
 fxStatic   db "Klik berganti DEFAULT > ON/OFF > DEFAULT. Efek ON dan OFF dijelaskan di atas. Pulihkan backup mengembalikan nilai awal.",0
 fxService  db "Jika dimatikan: service diset Disabled dan langsung dihentikan. Fitur Windows yang memakainya berhenti dan tetap OFF setelah restart, sampai kamu ON-kan lagi.",0
 fxTask     db "Jika dimatikan: Windows tidak menjalankan task ini lagi, juga setelah restart. Pekerjaan latar yang dijadwalkan task ini tidak dikerjakan.",0
 fxStartup  db "Jika dimatikan: program tidak ikut jalan saat login, jadi RAM dan waktu booting lebih lega. Membuka program secara manual tetap bisa dan status tetap OFF.",0
 fxBack     db "Jika dimatikan: aplikasi Store ini tidak boleh jalan di latar. Notifikasi, sinkronisasi, dan update live-tile berhenti saat aplikasinya ditutup.",0
-fxEnergy   db "ECO: prioritas Idle + EcoQoS, hemat CPU dan baterai. MAX: prioritas High. Tersimpan di Windows, tetap berlaku walau O3 ditutup atau PC restart.",0
+fxEnergy   db "ECO: RAM program dilepas (diulang tiap 1 menit 20 detik), prioritas memori Very Low, CPU Idle + EcoQoS. MAX: prioritas High. Prioritas CPU tersimpan di Windows dan tetap berlaku walau O3 ditutup.",0
 fxStopSvc  db "Jika dimatikan: service dihentikan sekarang saja. Setelah PC restart, atau saat ada aplikasi yang memanggilnya, Windows menjalankannya lagi.",0
 fxClose    db "Jika dimatikan: program ditutup sekarang dan RAM/CPU-nya langsung dilepas. Pekerjaan yang belum disimpan hilang. Klik lagi untuk membuka ulang.",0
+fxPause    db "Jika dimatikan: semua proses program ini dibekukan. CPU-nya 0% dan program tidak merespons sampai kamu ON-kan lagi. Program tidak ditutup dan datanya tetap ada. Status tetap OFF walau O3 ditutup.",0
 fxWinProc  db "Jika dimatikan: proses Windows/driver ini ditutup. Fitur yang memakainya berhenti sampai Windows menjalankannya lagi atau sampai PC restart.",0
 
-effectKinds: dq fxStatic, fxService, fxTask, fxStartup, fxBack, fxEnergy, fxStopSvc, fxClose, fxWinProc
-EFFECT_KINDS equ 9
+effectKinds: dq fxStatic, fxService, fxTask, fxStartup, fxBack, fxEnergy, fxStopSvc, fxClose, fxWinProc, fxPause
+EFFECT_KINDS equ 10
 
 kSysMain   db "SysMain",0
 xSysMain   db "Windows berhenti memuat aplikasi yang sering dipakai ke RAM lebih dulu. RAM lebih lega, tapi aplikasi bisa sedikit lebih lambat dibuka.",0
@@ -126,8 +128,26 @@ EFFECT_COUNT equ ($-effectTable)/16
 
 section .bss
 effectBuffer    resb 600
+savedBuffer     resb 128
 
 section .text
+
+energy_saved_note:
+    enter_frame
+    cmp     dword [applyResult], 1
+    jne     .done
+    mov     r8, [energy_saved]
+    test    r8, r8
+    jz      .done
+    shr     r8, 20
+    mov     qword [energy_saved], 0
+    lea     rdx, [savedFormat]
+    lea     rcx, [savedBuffer]
+    call    wsprintfA
+    lea     rax, [savedBuffer]
+    mov     [applyMessage], rax
+.done:
+    leave_frame
 
 effect_text:
     enter_frame
@@ -141,6 +161,8 @@ effect_text:
     test    eax, eax
     jz      .general
     cmp     eax, 5
+    je      .general
+    cmp     eax, 9
     je      .general
     mov     ecx, [rsp+96]
     call    o3_item_key

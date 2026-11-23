@@ -234,6 +234,105 @@ static DynItem *add_item(BYTE type, BYTE group, const WCHAR *key, const char *ti
     return d;
 }
 
+static WCHAR *stopped_file;
+
+static BOOL stopped_path(WCHAR *path) {
+    if (!initialize_paths() || lstrlenW(backup_folder) + 24 >= MAX_PATH) return FALSE;
+    wsprintfW(path, L"%s\\stopped-items.txt", backup_folder);
+    return TRUE;
+}
+
+static void load_stopped_file(void) {
+    WCHAR path[MAX_PATH];
+    if (stopped_file) { HeapFree(GetProcessHeap(), 0, stopped_file); stopped_file = NULL; }
+    if (!stopped_path(path)) return;
+    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (file == INVALID_HANDLE_VALUE) return;
+    DWORD size = GetFileSize(file, NULL), read = 0;
+    char *bytes = size && size < 256 * 1024 ? HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size + 1) : NULL;
+    if (bytes && ReadFile(file, bytes, size, &read, NULL) && read == size) {
+        int n = MultiByteToWideChar(CP_UTF8, 0, bytes, (int)read, NULL, 0);
+        stopped_file = n > 0 ? HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, (SIZE_T)(n + 1) * sizeof(WCHAR)) : NULL;
+        if (stopped_file) MultiByteToWideChar(CP_UTF8, 0, bytes, (int)read, stopped_file, n);
+    }
+    if (bytes) HeapFree(GetProcessHeap(), 0, bytes);
+    CloseHandle(file);
+}
+
+static void each_stopped(void (*visit)(WCHAR kind, const WCHAR *name, const WCHAR *path)) {
+    for (WCHAR *line = stopped_file; line && *line;) {
+        WCHAR *end = line;
+        while (*end && *end != '\n') ++end;
+        WCHAR *stop = end > line && end[-1] == '\r' ? end - 1 : end;
+        if (stop - line > 2 && stop - line < 300 && line[1] == '|' &&
+            (line[0] == 'S' || line[0] == 'P' || line[0] == 'W' || line[0] == 'Z')) {
+            WCHAR name[300], *path = NULL;
+            int n = (int)(stop - line - 2);
+            for (int i = 0; i < n; ++i) name[i] = line[2 + i];
+            name[n] = 0;
+            for (int i = 0; i < n; ++i) if (name[i] == '	') { name[i] = 0; path = name + i + 1; break; }
+            visit(line[0], name, path);
+        }
+        line = *end ? end + 1 : end;
+    }
+}
+
+static BOOL stopped_has(WCHAR kind, const WCHAR *name) {
+    for (WCHAR *line = stopped_file; line && *line;) {
+        WCHAR *end = line;
+        while (*end && *end != '\n') ++end;
+        WCHAR *stop = end > line && end[-1] == '\r' ? end - 1 : end;
+        int n = (int)(stop - line - 2), length = lstrlenW(name);
+        for (int i = 0; i < n; ++i) if (line[2 + i] == '	') { n = i; break; }
+        if (n == length && line[0] == kind && line[1] == '|' &&
+            CompareStringOrdinal(line + 2, n, name, length, TRUE) == CSTR_EQUAL) return TRUE;
+        line = *end ? end + 1 : end;
+    }
+    return FALSE;
+}
+
+static void save_stopped(WCHAR kind, const WCHAR *name, const WCHAR *exe, BOOL off) {
+    WCHAR path[MAX_PATH], temp[MAX_PATH];
+    load_stopped_file();
+    if (stopped_has(kind, name) == off) return;
+    if (!stopped_path(path)) return;
+    lstrcpyW(temp, path);
+    lstrcatW(temp, L".tmp");
+    HANDLE file = CreateFileW(temp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) return;
+    char line[1400];
+    DWORD written;
+    for (WCHAR *row = stopped_file; row && *row;) {
+        WCHAR *end = row;
+        while (*end && *end != '\n') ++end;
+        WCHAR *stop = end > row && end[-1] == '\r' ? end - 1 : end;
+        int n = (int)(stop - row), length = lstrlenW(name), name_end = n;
+        for (int i = 2; i < n; ++i) if (row[i] == '	') { name_end = i; break; }
+        BOOL same = name_end - 2 == length && row[0] == kind && row[1] == '|' &&
+                    CompareStringOrdinal(row + 2, length, name, length, TRUE) == CSTR_EQUAL;
+        if (!same && n > 0 && n < 600) {
+            int bytes = WideCharToMultiByte(CP_UTF8, 0, row, n, line, sizeof line - 2, NULL, NULL);
+            line[bytes++] = '\r'; line[bytes++] = '\n';
+            WriteFile(file, line, (DWORD)bytes, &written, NULL);
+        }
+        row = *end ? end + 1 : end;
+    }
+    if (off) {
+        int bytes = wsprintfA(line, "%c|", (char)kind);
+        bytes += WideCharToMultiByte(CP_UTF8, 0, name, -1, line + bytes, sizeof line - bytes - 2, NULL, NULL) - 1;
+        if (exe && *exe) {
+            line[bytes++] = '	';
+            bytes += WideCharToMultiByte(CP_UTF8, 0, exe, -1, line + bytes, sizeof line - bytes - 2, NULL, NULL) - 1;
+        }
+        line[bytes++] = '\r'; line[bytes++] = '\n';
+        WriteFile(file, line, (DWORD)bytes, &written, NULL);
+    }
+    FlushFileBuffers(file);
+    CloseHandle(file);
+    if (MoveFileExW(temp, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) load_stopped_file();
+    else DeleteFileW(temp);
+}
+
 static const WCHAR *const protected_services[] = {
     L"AppIDSvc", L"Appinfo", L"AppXSvc", L"AudioEndpointBuilder", L"Audiosrv", L"BFE", L"BITS",
     L"BrokerInfrastructure", L"camsvc", L"ClipSVC", L"CoreMessagingRegistrar", L"CryptSvc",
@@ -934,9 +1033,115 @@ static void scan_energy(void) {
 static void scan_programs(void);
 static BOOL refresh_detail(DynItem *d);
 
+typedef LONG (NTAPI *SuspendCall)(HANDLE process);
+
+static BOOL pause_process(DWORD pid, BOOL pause) {
+    static SuspendCall suspend, resume;
+    if (!suspend) {
+        HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+        suspend = (SuspendCall)(void *)GetProcAddress(ntdll, "NtSuspendProcess");
+        resume = (SuspendCall)(void *)GetProcAddress(ntdll, "NtResumeProcess");
+    }
+    if (!suspend || !resume) return FALSE;
+    HANDLE h = OpenProcess(PROCESS_SUSPEND_RESUME, FALSE, pid);
+    if (!h) return FALSE;
+    LONG status = pause ? suspend(h) : resume(h);
+    CloseHandle(h);
+    return status >= 0;
+}
+
+static BOOL pause_forbidden(const ProcInfo *p) {
+    if (never_closed(p->name) || p->pid == GetCurrentProcessId()) return TRUE;
+    static const WCHAR *const extra[] = { L"explorer.exe", L"ShellExperienceHost.exe", L"StartMenuExperienceHost.exe",
+        L"SearchHost.exe", L"TextInputHost.exe", L"ctfmon.exe", L"sihost.exe", L"taskhostw.exe", L"RuntimeBroker.exe",
+        L"winlogon.exe", L"LogonUI.exe", L"powershell.exe", L"cmd.exe", L"WindowsTerminal.exe", L"Taskmgr.exe" };
+    for (unsigned i = 0; i < ARRAYSIZE(extra); ++i) if (!lstrcmpiW(p->name, extra[i])) return TRUE;
+    return critical_process(p->pid);
+}
+
+static unsigned pause_run(DynItem *d, BOOL run) {
+    if (d->current == (DWORD)run) return no_change;
+    if (!run) {
+        WCHAR text[400];
+        wsprintfW(text, L"Bekukan %s?\r\n\r\nCPU-nya jadi 0%% dan program berhenti merespons sampai kamu ON-kan lagi. "
+                        L"Program tidak ditutup dan datanya tidak hilang.\r\n\r\n"
+                        L"Jangan bekukan program yang sedang kamu pakai (game, call, download).", d->key);
+        if (MessageBoxW(FindWindowW(L"OffOrOnWindow", NULL), text, L"Jeda CPU",
+                        MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_SETFOREGROUND) != IDYES) return cancelled;
+    }
+    snapshot_processes(FALSE);
+    unsigned done = 0, failed_count = 0;
+    for (unsigned i = 0; i < proc_total; ++i) {
+        const ProcInfo *p = &proc_list[i];
+        if (lstrcmpiW(p->name, d->key) || pause_forbidden(p)) continue;
+        if (pause_process(p->pid, !run)) ++done; else ++failed_count;
+    }
+    if (!done) return failed_count ? change_failed : no_change;
+    d->current = run ? 1 : 0;
+    return failed_count ? change_failed : changed_live;
+}
+
+static void scan_pause(void) {
+    unsigned first = found_count;
+    for (unsigned i = 0; i < proc_total; ++i) {
+        const ProcInfo *p = &proc_list[i];
+        if (!p->name[0] || pause_forbidden(p)) continue;
+        DynItem *d = NULL;
+        for (unsigned j = first; j < found_count && !d; ++j)
+            if (!lstrcmpiW(found_items[j]->key, p->name)) d = found_items[j];
+        if (!d) {
+            char name[96], title[128];
+            to_ansi(p->name, name, sizeof name);
+            wsprintfA(title, "Jeda CPU: %s", name);
+            HANDLE h = OpenProcess(PROCESS_SUSPEND_RESUME, FALSE, p->pid);
+            if (h) CloseHandle(h);
+            d = add_item(dyn_stop, tab_cpu, p->name, title, "-", 1, 0, h != NULL);
+            if (!d) continue;
+            d->place = 3;
+            d->running = 1;
+            lstrcpynW(d->image, p->name, ARRAYSIZE(d->image));
+        }
+        d->weight += (ULONGLONG)p->pct * 1000000ull + (p->ws >> 20);
+    }
+
+    unsigned kept = first;
+    for (unsigned j = first; j < found_count; ++j) {
+        DynItem *d = found_items[j];
+        if (!d->locked || d->weight >= 1000000ull || stopped_has('Z', d->key)) found_items[kept++] = d;
+        else { HeapFree(GetProcessHeap(), 0, d->key); HeapFree(GetProcessHeap(), 0, d->title);
+               HeapFree(GetProcessHeap(), 0, d->detail); HeapFree(GetProcessHeap(), 0, d); }
+    }
+    found_count = kept;
+}
+
+static unsigned stopped_first;
+
+static void stopped_visit(WCHAR kind, const WCHAR *name, const WCHAR *path) {
+    for (unsigned j = 0; j < found_count; ++j) {
+        DynItem *d = found_items[j];
+        if (d->type != dyn_stop || lstrcmpiW(d->key, name)) continue;
+        if ((kind == 'S') != (d->place == 0) || (kind == 'Z') != (d->place == 3)) continue;
+        d->current = 0;
+        if (!d->path && path) d->path = dup_wide(path);
+        return;
+    }
+    char text[300], title[340];
+    to_ansi(name, text, sizeof text);
+    if (kind == 'Z') return;
+    wsprintfA(title, kind == 'S' ? "Hentikan: %s" : kind == 'W' ? "Tutup (Windows): %s" : "Tutup: %s", text);
+    DynItem *d = add_item(dyn_stop, kind == 'S' ? tab_cpu : tab_ram, name, title, "-", 0, 0, kind != 'P' ? dyn_elevated : TRUE);
+    if (!d) return;
+    d->place = kind == 'S' ? 0 : kind == 'P' ? 1 : 2;
+    d->running = 0;
+    d->baseline = 1;
+    lstrcpynW(d->image, name, ARRAYSIZE(d->image));
+    if (path) d->path = dup_wide(path);
+}
+
 static void scan_programs(void) {
     unsigned first = found_count;
     load_restart_file();
+    stopped_first = first;
     for (unsigned i = 0; i < proc_total; ++i) {
         const ProcInfo *p = &proc_list[i];
         if (!p->name[0] || energy_skipped(p->name) || !user_process(p)) continue;
@@ -1008,9 +1213,12 @@ enum { applied_limit = 1024 };
 static EnergyApplied applied[applied_limit];
 static unsigned applied_count;
 unsigned o3_eco_count;
+ULONGLONG energy_saved;
+static void usage_of(const WCHAR *image, unsigned *count, ULONGLONG *memory, unsigned *pct);
 
 static BOOL set_energy(DWORD pid, BYTE mode, DWORD *priority) {
-    HANDLE h = OpenProcess(PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    HANDLE h = OpenProcess(PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION |
+                           PROCESS_SET_QUOTA | PROCESS_QUERY_INFORMATION, FALSE, pid);
     if (!h) return FALSE;
     if (priority && !*priority) *priority = GetPriorityClass(h);
 
@@ -1021,6 +1229,10 @@ static BOOL set_energy(DWORD pid, BYTE mode, DWORD *priority) {
     DWORD wanted = mode == energy_eco ? IDLE_PRIORITY_CLASS : mode == energy_max ? HIGH_PRIORITY_CLASS
                  : priority && *priority ? *priority : NORMAL_PRIORITY_CLASS;
     ok = SetPriorityClass(h, wanted) && ok;
+
+    MEMORY_PRIORITY_INFORMATION memory = { mode == energy_eco ? MEMORY_PRIORITY_VERY_LOW : MEMORY_PRIORITY_NORMAL };
+    SetProcessInformation(h, ProcessMemoryPriority, &memory, sizeof memory);
+    if (mode == energy_eco) K32EmptyWorkingSet(h);
     CloseHandle(h);
     return ok;
 }
@@ -1069,6 +1281,15 @@ static void enforce_energy(void) {
         lstrcpyW(a->name, p->name);
         a->mode = wanted;
         if (set_energy(p->pid, wanted, &a->priority)) ++applied_count;
+    }
+    static unsigned trim_tick;
+    if (++trim_tick >= 40) {
+        trim_tick = 0;
+        for (unsigned i = 0; i < applied_count; ++i) {
+            if (applied[i].mode != energy_eco) continue;
+            HANDLE h = OpenProcess(PROCESS_SET_QUOTA | PROCESS_QUERY_INFORMATION, FALSE, applied[i].pid);
+            if (h) { K32EmptyWorkingSet(h); CloseHandle(h); }
+        }
     }
     o3_eco_count = applied_count;
 }
@@ -1136,9 +1357,19 @@ static unsigned energy_apply(DynItem *d, unsigned id, unsigned request, unsigned
         dynamic_check(id, state, source, &mark);
         return record_failed;
     }
-    snapshot_processes(FALSE);
+    unsigned count_before, pct_before;
+    ULONGLONG memory_before;
+    snapshot_processes(TRUE);
+    usage_of(d->key, &count_before, &memory_before, &pct_before);
 
     enforce_energy();
+    if (wanted == energy_eco) {
+        unsigned count_after, pct_after;
+        ULONGLONG memory_after;
+        snapshot_processes(TRUE);
+        usage_of(d->key, &count_after, &memory_after, &pct_after);
+        energy_saved = memory_before > memory_after ? memory_before - memory_after : 0;
+    } else energy_saved = 0;
     int running = energy_verify(d);
     unsigned result = running < 0 ? change_failed : running ? changed_live : changed_saved;
     if (running < 0) d->locked = 1;
@@ -1253,12 +1484,16 @@ static void dynamic_scan(void) {
     scan_background();
     scan_energy();
     scan_programs();
+    load_stopped_file();
+    scan_pause();
+    each_stopped(stopped_visit);
 
     WCHAR *saved = NULL;
     BYTE *is_new = dyn_alloc(found_count + 1);
     BOOL ok = is_new && load_defaults(&saved);
     for (unsigned i = 0; ok && i < found_count; ++i) {
         DWORD value;
+        if (found_items[i]->type == dyn_stop) found_items[i]->baseline = 1;
         if (found_items[i]->type == dyn_energy || found_items[i]->type == dyn_stop) continue;
         if (saved && saved_default(saved, found_items[i], &value)) found_items[i]->baseline = value;
         else is_new[i] = 1;
@@ -1389,7 +1624,7 @@ static BOOL close_running_program(const DynItem *d) {
 unsigned o3_item_kind(unsigned id) {
     if (id <= item_count || id - item_count > dyn_count) return 0;
     const DynItem *d = dyn_items[id - item_count - 1];
-    if (d->type == dyn_stop) return d->place == 0 ? 6 : d->place == 1 ? 7 : 8;
+    if (d->type == dyn_stop) return d->place == 0 ? 6 : d->place == 1 ? 7 : d->place == 3 ? 9 : 8;
     return d->type;
 }
 
@@ -1453,15 +1688,21 @@ static BOOL refresh_detail(DynItem *d) {
                       startup_places[d->place].label, name, usage);
         } else wsprintfA(text, "Startup %s | %s | tidak berjalan", startup_places[d->place].label, name);
     } else if (d->type == dyn_energy || d->type == dyn_stop) {
-        usage_all = d->type == dyn_stop && d->place == 2;
+        usage_all = d->type == dyn_stop && d->place >= 2;
         usage_of(d->key, &count, &memory, &pct);
         usage_all = FALSE;
         if (count) {
             usage_text(usage, memory, pct);
-            if (d->type == dyn_stop && d->restarts)
+            if (d->type == dyn_stop && d->place == 3)
+                wsprintfA(text, d->current ? "Berjalan | %u proses | %s" : "DIBEKUKAN | %u proses | %s | CPU 0%%, klik untuk lanjut", count, usage);
+            else if (d->type == dyn_stop && d->restarts)
                 wsprintfA(text, "Dijalankan ulang otomatis oleh Windows/aplikasi lain | %s", usage);
             else if (d->type == dyn_stop && d->place == 2)
                 wsprintfA(text, "Proses Windows/driver | %u proses | %s", count, usage);
+            else if (d->type == dyn_energy && d->current == energy_eco)
+                wsprintfA(text, "ECO aktif | %u proses | %s | RAM dilepas tiap 1 menit 20 detik", count, usage);
+            else if (d->type == dyn_energy && d->current == energy_max)
+                wsprintfA(text, "MAX aktif | %u proses | %s | prioritas High", count, usage);
             else wsprintfA(text, "Program berjalan | %u proses | %s", count, usage);
         } else lstrcpyA(text, d->type == dyn_energy ? "Program tidak berjalan | pilihan berlaku saat program dibuka"
                                                     : "Program ditutup | klik lagi untuk membuka ulang");
@@ -1486,7 +1727,7 @@ static void live_services(void) {
             d->running = (BYTE)running;
             d->pid = pid;
             d->sharing = (BYTE)(sharing > 255 ? 255 : sharing);
-            if (d->type == dyn_stop) d->current = running ? 1 : 0;
+            if (d->type == dyn_stop) d->current = running && !stopped_has('S', d->key) ? 1 : 0;
             break;
         }
     }
@@ -1623,7 +1864,9 @@ static unsigned dynamic_apply(unsigned id, unsigned request, unsigned char *stat
     if (d->type == dyn_energy) return energy_apply(d, id, request, state, source);
     if (d->type == dyn_stop) {
         BOOL run = request == request_on || (request == request_default && d->baseline);
-        unsigned result = d->place == 0 ? service_run(d, run) : program_run(d, run);
+        unsigned result = d->place == 0 ? service_run(d, run) : d->place == 3 ? pause_run(d, run) : program_run(d, run);
+        if (result == changed_live || result == no_change)
+            save_stopped(d->place == 0 ? 'S' : d->place == 1 ? 'P' : d->place == 3 ? 'Z' : 'W', d->key, d->path, !run);
         if (result == change_failed) d->locked = 2;
         if (result == respawned) remember_restart(d);
         refresh_detail(d);
@@ -1700,6 +1943,7 @@ static BOOL dynamic_light_tick(void) {
     return TRUE;
 }
 
+static void enforce_stopped(void);
 static BOOL dynamic_refresh(unsigned char *states, unsigned char *sources, unsigned char *availability) {
     BOOL changed = FALSE;
     snapshot_processes(TRUE);
@@ -1712,11 +1956,13 @@ static BOOL dynamic_refresh(unsigned char *states, unsigned char *sources, unsig
             if (d->type == dyn_startup || (d->type == dyn_stop && d->place >= 1)) {
                 unsigned count, pct;
                 ULONGLONG memory;
-                usage_all = d->type == dyn_stop && d->place == 2;
+                usage_all = d->type == dyn_stop && d->place >= 2;
                 usage_of(d->type == dyn_startup ? d->image : d->key, &count, &memory, &pct);
                 usage_all = FALSE;
                 if (d->type == dyn_startup) d->running = (BYTE)(count != 0);
-                else d->current = count ? 1 : 0;
+                else if (d->place == 3) { if (!count) d->current = 1; }
+                else if (!(d->current == 0 && stopped_has(d->place == 1 ? 'P' : 'W', d->key) && count))
+                    d->current = count ? 1 : 0;
             }
         }
         if (refresh_detail(d)) changed = TRUE;
@@ -1728,7 +1974,45 @@ static BOOL dynamic_refresh(unsigned char *states, unsigned char *sources, unsig
             o3_defaults[id-1] != old_mark) changed = TRUE;
     }
     enforce_energy();
+    enforce_stopped();
     return changed;
+}
+
+static void enforce_stopped(void) {
+    static unsigned tick;
+    if (++tick < 5) return;
+    tick = 0;
+    DWORD front = 0;
+    GetWindowThreadProcessId(GetForegroundWindow(), &front);
+    for (unsigned i = 0; i < dyn_count; ++i) {
+        DynItem *d = dyn_items[i];
+        if (d->type != dyn_stop || d->locked || d->restarts || d->current) continue;
+        if (d->place == 3) continue;
+        if (d->place == 0) {
+            SC_HANDLE scm = OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT);
+            SC_HANDLE s = scm ? OpenServiceW(scm, d->key, SERVICE_QUERY_STATUS | SERVICE_STOP) : NULL;
+            SERVICE_STATUS status;
+            if (s && QueryServiceStatus(s, &status) && status.dwCurrentState == SERVICE_RUNNING)
+                ControlService(s, SERVICE_CONTROL_STOP, &status);
+            if (s) CloseServiceHandle(s);
+            if (scm) CloseServiceHandle(scm);
+            continue;
+        }
+        BOOL opened_by_player = FALSE;
+        for (unsigned j = 0; j < proc_total && !opened_by_player; ++j)
+            opened_by_player = proc_list[j].pid == front && !lstrcmpiW(proc_list[j].name, d->key);
+        if (opened_by_player) {
+            d->current = 1;
+            save_stopped(d->place == 1 ? 'P' : 'W', d->key, NULL, FALSE);
+            continue;
+        }
+        for (unsigned j = 0; j < proc_total; ++j) {
+            const ProcInfo *p = &proc_list[j];
+            if (lstrcmpiW(p->name, d->key) || (d->place == 1 && !user_process(p)) || critical_process(p->pid)) continue;
+            HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, p->pid);
+            if (h) { TerminateProcess(h, 0); CloseHandle(h); }
+        }
+    }
 }
 
 static void dynamic_restore(unsigned *restored, unsigned *same, unsigned *failures) {
@@ -1744,4 +2028,9 @@ static void dynamic_restore(unsigned *restored, unsigned *same, unsigned *failur
         else ++*failures;
     }
     energy_release_all();
+    for (unsigned i = 0; i < dyn_count; ++i)
+        if (dyn_items[i]->type == dyn_stop && dyn_items[i]->place == 3 && !dyn_items[i]->current) pause_run(dyn_items[i], TRUE);
+    WCHAR path[MAX_PATH];
+    if (stopped_path(path)) DeleteFileW(path);
+    load_stopped_file();
 }

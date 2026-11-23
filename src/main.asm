@@ -22,7 +22,7 @@ extern o3_first_instance
 extern o3_choose_target, o3_target_label
 extern SetTimer, KillTimer, o3_refresh_switches
 extern o3_record_launch, o3_backup_first, o3_collect, o3_options, o3_apply, o3_restore
-extern MessageBoxA
+extern RegSetKeyValueA, MessageBoxA, DestroyWindow
 extern o3_defaults, o3_item_total, o3_release_efficiency
 
 %define RGB(r,g,b) ((r) | ((g) << 8) | ((b) << 16))
@@ -225,6 +225,8 @@ fmtScanProgress db "Memeriksa %u dari %u fitur",0
 fmtLaunch       db "OffOrOn (O3) v1.02 | Dibuka %u kali",0
 recreatedBackup db "Backup awal hilang, dibuat ulang dari setelan saat ini.",0
 backupError     db "Backup gagal disimpan. ON/OFF dikunci sampai Pindai ulang berhasil.",0
+closeTitle      db "Tutup O3",0
+closeConfirm    db "All changes will be saved.",13,10,13,10,"Semua perubahan tetap tersimpan setelah O3 ditutup: service, scheduled task, startup, aplikasi latar, dan prioritas ECO/MAX tetap berlaku sampai kamu ubah sendiri atau tekan Pulihkan backup.",13,10,13,10,"Pelepasan RAM berkala untuk program ECO berhenti selama O3 tertutup.",13,10,13,10,"Tutup O3 sekarang?",0
 restoreTitle    db "Pulihkan backup",0
 restoreRunning  db "Memulihkan setelan dari backup...",0
 restoreConfirm  db "Kembalikan semua setelan yang tercatat di backup ke nilai awalnya?",13,10,13,10
@@ -313,6 +315,8 @@ brushColors:
     dd RGB(176,182,190), RGB(234,238,244), RGB(204,209,216), RGB(150,156,166)
 
 section .rdata
+viewKey         db "Software\OffOrOn",0
+viewValue       db "LastView",0
 effectHeading   db "EFEK",0
 effectHint      db "Pilih sebuah item untuk melihat apa yang terjadi jika dinonaktifkan.",0
 
@@ -350,6 +354,8 @@ drawingDc       resq 1
 drawingRect     resd 4
 nullPen         resq 1
 textFlags       resd 1
+viewState       resd 3
+viewRestored    resd 1
 activeTab       resd 1
 activeRow       resd 1
 pageOffset      resd 1
@@ -502,7 +508,24 @@ window_proc:
     je      .command
     cmp     edx, WM_DESTROY
     je      .destroy
+    cmp     edx, WM_CLOSE
+    je      .confirm_close
     jmp     DefWindowProcA
+.confirm_close:
+    enter_frame
+    mov     [rsp+96], rcx
+    lea     rdx, [closeConfirm]
+    lea     r8, [closeTitle]
+    mov     r9d, 0x41
+    call    MessageBoxA
+    cmp     eax, 1
+    jne     .keep_open
+    call    save_view_state
+    mov     rcx, [rsp+96]
+    call    DestroyWindow
+.keep_open:
+    xor     eax, eax
+    leave_frame
 .create:
     enter_frame
     mov     [mainWindow], rcx
@@ -630,6 +653,7 @@ window_proc:
     mov     dword [scanBusy], 0
     mov     dword [catalogueReady], 1
     call    rebuild_checked_view
+    call    load_view_state
     mov     rcx, [refreshButton]
     mov     edx, 1
     call    EnableWindow
@@ -651,6 +675,7 @@ window_proc:
     lea     rdx, [applyLabels]
     mov     rax, [rdx+rax*8]
     mov     [applyMessage], rax
+    call    energy_saved_note
     mov     dword [applyItem], 0
 .scan_summary:
     call    show_scan_summary
@@ -1967,6 +1992,68 @@ paint_row_housing:
     mov     r8d, [rsp+108]
     xor     r9d, r9d
     call    SetViewportOrgEx
+    leave_frame
+
+save_view_state:
+    enter_frame
+    mov     eax, [activeTab]
+    mov     [viewState], eax
+    mov     eax, [pageOffset]
+    mov     [viewState+4], eax
+    mov     eax, [activeRow]
+    mov     [viewState+8], eax
+    mov     rcx, 0xffffffff80000001
+    lea     rdx, [viewKey]
+    lea     r8, [viewValue]
+    mov     r9d, 3
+    lea     rax, [viewState]
+    mov     [rsp+32], rax
+    mov     dword [rsp+40], 12
+    call    RegSetKeyValueA
+    leave_frame
+
+load_view_state:
+    enter_frame
+    cmp     dword [viewRestored], 0
+    jne     .done
+    mov     dword [viewRestored], 1
+    mov     rcx, 0xffffffff80000001
+    lea     rdx, [viewKey]
+    lea     r8, [viewValue]
+    mov     r9d, 8
+    mov     qword [rsp+32], 0
+    lea     rax, [viewState]
+    mov     [rsp+40], rax
+    mov     dword [rsp+112], 12
+    lea     rax, [rsp+112]
+    mov     [rsp+48], rax
+    call    RegGetValueA
+    test    eax, eax
+    jnz     .done
+    mov     eax, [viewState]
+    cmp     eax, UNAVAILABLE_TAB
+    ja      .done
+    lea     rdx, [categoryTotals]
+    cmp     eax, UNAVAILABLE_TAB
+    je      .tab_ok
+    cmp     dword [rdx+rax*4], 0
+    je      .done
+.tab_ok:
+    mov     [activeTab], eax
+    call    layout_checked_tabs
+    call    rebuild_view
+    mov     eax, [viewState+4]
+    cmp     eax, [viewCount]
+    jae     .done
+    and     eax, -PAGE_SIZE
+    mov     [pageOffset], eax
+    mov     ecx, [viewState+8]
+    and     ecx, PAGE_SIZE-1
+    add     eax, ecx
+    cmp     eax, [viewCount]
+    jae     .done
+    mov     [activeRow], ecx
+.done:
     leave_frame
 
 paint_effect:

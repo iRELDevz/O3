@@ -1,1 +1,6 @@
 /build/
+
+# data pribadi O3, jangan pernah diupload
+DO NOT DELETE THIS backupfirst/
+launch-count.json
+*.old*.exe
