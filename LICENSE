@@ -1,0 +1,56 @@
+MIT License with Sale Restriction (O3 / OffOrOn)
+
+Copyright (c) 2026 iRELDevz
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+SALE RESTRICTION. Notwithstanding the above, the right to "sell" is NOT
+granted. "Sell" means providing the Software, any modified version, or any
+product, service, bundle, or access whose value derives substantially from
+the Software, to third parties for a fee or other compensation (including
+payment, subscriptions, paid links, license keys, or donation-gated access).
+The right to sell is granted only to:
+  (a) persons or organisations that have received written permission from
+      the owner of the official repository; and
+  (b) contributors whose pull request has been merged into the official
+      repository by its owner, for as long as their contribution remains
+      part of the Software. A pull request that is not merged grants no
+      right to sell.
+This restriction must be kept in all copies and modified versions.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE. THE SOFTWARE CHANGES WINDOWS SETTINGS, SERVICES AND SCHEDULED TASKS;
+USE IT AT YOUR OWN RISK.
+
+Third-party code: src/vendor/jsmn.h is Copyright (c) 2010 Serge Zaitsev and
+is licensed under the plain MIT License included in that file; the sale
+restriction above does not apply to it.
+
+Contact for permission: https://github.com/iRELDevz
+
+----------------------------------------------------------------------------
+RINGKASAN (Bahasa Indonesia, tidak menggantikan teks di atas)
+
+- Boleh gratis: memakai, menyalin, mengubah, menggabungkan, menerbitkan dan
+  menyebarkan O3, asal pemberitahuan copyright dan lisensi ini tetap ada.
+- TIDAK boleh menjual O3, versi ubahannya, atau produk/layanan/akses
+  berbayar yang isinya terutama O3, kecuali:
+    (a) mendapat izin tertulis dari pemilik repositori resmi, atau
+    (b) kontributor yang pull request-nya sudah di-merge pemilik ke
+        repositori resmi. PR yang tidak di-merge tidak memberi hak jual.
+- Larangan jual ini wajib ikut di setiap salinan dan versi ubahan.
+- Tanpa jaminan. Risiko pemakaian ditanggung pengguna.
+- src/vendor/jsmn.h tetap MIT biasa milik Serge Zaitsev.

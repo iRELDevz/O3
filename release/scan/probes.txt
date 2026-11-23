@@ -1,0 +1,37 @@
+1|I|enable_high_fps||1|0
+2|I|enable_vsync||1|0
+16|G|enable_adb_access||1|0
+20|D|Software\Microsoft\GameBar|AutoGameModeEnabled|1|0
+21|D|Software\Microsoft\Windows\CurrentVersion\GameDVR|HistoricalCaptureEnabled|1|0
+22|D|Software\Microsoft\GameBar|UseNexusForGameBarEnabled|1|0
+23|D|Software\Microsoft\Windows\CurrentVersion\GameDVR|AudioCaptureEnabled|1|0
+25|D|Software\Microsoft\Multimedia\Audio|AccessibilityMonoMixState|1|0
+27|D|Software\Microsoft\Windows\CurrentVersion\PushNotifications|ToastEnabled|1|0
+48|D|Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced|ShowTaskViewButton|1|0
+49|D|Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced|TaskbarDa|1|0
+51|D|Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced|TaskbarBadges|1|0
+52|D|Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced|TaskbarFlashing|1|0
+53|D|Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced|MMTaskbarEnabled|1|0
+55|D|Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced|TaskbarSd|1|0
+56|D|Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced|ShowSecondsInSystemClock|1|0
+62|D|Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced|Start_TrackDocs|1|0
+63|D|Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced|TaskbarSearchHoverEnabled|1|0
+67|D|Software\Microsoft\Windows\CurrentVersion\Themes\Personalize|EnableTransparency|1|0
+68|D|Control Panel\Accessibility|DynamicScrollbars|0|1
+69|D|Control Panel\Desktop|MouseWheelRouting|2|0
+70|S|Control Panel\Mouse|MouseSpeed|1,2|0
+74|S|Control Panel\Mouse|SnapToDefaultButton|1|0
+76|B|Control Panel\Accessibility\MouseKeys|Flags|1|0
+77|B|Control Panel\Accessibility\StickyKeys|Flags|1|0
+78|B|Control Panel\Accessibility\StickyKeys|Flags|4|0
+79|B|Control Panel\Accessibility\Keyboard Response|Flags|1|0
+80|B|Control Panel\Accessibility\Keyboard Response|Flags|4|0
+81|B|Control Panel\Accessibility\ToggleKeys|Flags|1|0
+82|B|Control Panel\Accessibility\ToggleKeys|Flags|4|0
+89|D|Software\Microsoft\Windows NT\CurrentVersion\Winlogon|RestartApps|1|0
+105|D|Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced|HideFileExt|0|1
+106|D|Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced|Hidden|1|2
+107|D|Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced|UseCompactMode|1|0
+110|D|Software\Microsoft\Windows\CurrentVersion\Explorer|ShowRecent|1|0
+111|D|Software\Microsoft\Windows\CurrentVersion\Explorer|ShowFrequent|1|0
+112|D|Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced|AutoCheckSelect|1|0
