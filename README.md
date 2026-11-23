@@ -103,6 +103,12 @@ The result is `build\OffOrOn.exe` with `build\scan` next to it.
 | `src/audio_session.cpp` | Audio session reads |
 | `scan/` | Fallback readers (`probe.ps1`, `probe.cmd`) and their item list |
 
+## Contributing
+
+Using AI to help is fine, but you have to say so in every issue and pull request.
+Issues should be written in your own words. Details in
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 MIT with one change: you can't sell O3 or anything built mainly on it unless the
