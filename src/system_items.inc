@@ -3,6 +3,7 @@
 #include <psapi.h>
 
 enum { dyn_service = 1, dyn_task, dyn_startup, dyn_background, dyn_energy, dyn_stop };
+
 enum { tab_cpu = 4, tab_ram = 5, tab_energy = 6 };
 
 enum { energy_normal, energy_eco, energy_max };
@@ -328,9 +329,10 @@ static void scan_services(void) {
         to_ansi(s->lpDisplayName, title, sizeof title);
         BYTE group = running ? tab_ram : tab_cpu;
         ULONGLONG weight = 0;
-        if (own) {
-            if (proc->pct >= 5) group = tab_cpu;
-            weight = group == tab_cpu ? proc->pct : proc->ws;
+        if (proc) {
+            unsigned share = own ? 1 : sharing;
+            if (own && proc->pct >= 5) group = tab_cpu;
+            weight = group == tab_cpu ? proc->pct : proc->ws / share;
         }
         DynItem *d = add_item(dyn_service, group, s->lpServiceName, title, "-", start, weight, writable);
         if (d) {
@@ -719,6 +721,28 @@ static BOOL energy_skipped(const WCHAR *name) {
     return FALSE;
 }
 
+static const WCHAR *const never_close[] = {
+    L"System", L"Registry", L"smss.exe", L"csrss.exe", L"wininit.exe", L"winlogon.exe",
+    L"services.exe", L"lsass.exe", L"lsaiso.exe", L"svchost.exe", L"dwm.exe", L"fontdrvhost.exe",
+    L"MemCompression", L"Memory Compression", L"[System Process]", L"Secure System", L"Idle", L"LsaIso.exe", L"audiodg.exe", L"spoolsv.exe",
+    L"MsMpEng.exe", L"NisSrv.exe", L"MpDefenderCoreService.exe", L"SecurityHealthService.exe",
+    L"OffOrOn.exe", L"O3Windows.exe", L"conhost.exe", L"WUDFHost.exe", L"dasHost.exe"
+};
+
+static BOOL never_closed(const WCHAR *name) {
+    for (unsigned i = 0; i < ARRAYSIZE(never_close); ++i) if (!lstrcmpiW(name, never_close[i])) return TRUE;
+    return FALSE;
+}
+
+static BOOL critical_process(DWORD pid) {
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!h) return TRUE;
+    BOOL critical = TRUE;
+    if (!IsProcessCritical(h, &critical)) critical = TRUE;
+    CloseHandle(h);
+    return critical;
+}
+
 static BOOL user_process(const ProcInfo *p) {
     return p->mine == 1;
 }
@@ -944,6 +968,31 @@ static void scan_programs(void) {
         d->pid += p->pct;
     }
 
+    for (unsigned i = 0; i < proc_total; ++i) {
+        const ProcInfo *p = &proc_list[i];
+        if (!p->name[0] || p->pid == GetCurrentProcessId() || user_process(p) || never_closed(p->name)) continue;
+        if (p->ws < (24ull << 20) && p->pct < 5) continue;
+        DynItem *d = NULL;
+        for (unsigned j = first; j < found_count && !d; ++j)
+            if (found_items[j]->place == 2 && !lstrcmpiW(found_items[j]->key, p->name)) d = found_items[j];
+        if (!d) {
+            char name[96], title[128];
+            to_ansi(p->name, name, sizeof name);
+            wsprintfA(title, "Tutup (Windows): %s", name);
+            HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, p->pid);
+            BOOL closable = h && !critical_process(p->pid);
+            if (h) CloseHandle(h);
+            d = add_item(dyn_stop, tab_ram, p->name, title, "-", 1, 0, closable && dyn_elevated);
+            if (!d) continue;
+            d->place = 2;
+            d->running = 1;
+            lstrcpynW(d->image, p->name, ARRAYSIZE(d->image));
+            if (restarts_automatically(p->name)) { d->restarts = 1; d->locked = 1; }
+        }
+        d->weight += p->ws;
+        d->pid += p->pct;
+    }
+
     for (unsigned j = first; j < found_count; ++j) {
         DynItem *d = found_items[j];
         if (d->pid >= 5) {
@@ -1046,6 +1095,31 @@ static int energy_verify(const DynItem *d) {
     return running;
 }
 
+#define IFEO L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\"
+
+static BOOL persist_energy(const WCHAR *name, BYTE mode) {
+    WCHAR path[MAX_PATH];
+    if (lstrlenW(name) > 80) return FALSE;
+    wsprintfW(path, L"%s%s\\PerfOptions", IFEO, name);
+    if (mode == energy_normal) {
+        DWORD mark = 0, size = sizeof mark;
+        if (RegGetValueW(HKEY_LOCAL_MACHINE, path, L"O3Priority", RRF_RT_REG_DWORD, NULL, &mark, &size) != ERROR_SUCCESS)
+            return TRUE;
+        RegDeleteKeyValueW(HKEY_LOCAL_MACHINE, path, L"CpuPriorityClass");
+        RegDeleteKeyValueW(HKEY_LOCAL_MACHINE, path, L"O3Priority");
+        RegDeleteKeyW(HKEY_LOCAL_MACHINE, path);
+        return TRUE;
+    }
+    HKEY key;
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, path, 0, NULL, 0, KEY_SET_VALUE, NULL, &key, NULL) != ERROR_SUCCESS)
+        return FALSE;
+    DWORD value = mode == energy_eco ? 1 : 3, mark = 1;
+    BOOL ok = RegSetValueExW(key, L"CpuPriorityClass", 0, REG_DWORD, (BYTE *)&value, sizeof value) == ERROR_SUCCESS &&
+              RegSetValueExW(key, L"O3Priority", 0, REG_DWORD, (BYTE *)&mark, sizeof mark) == ERROR_SUCCESS;
+    RegCloseKey(key);
+    return ok;
+}
+
 static unsigned energy_apply(DynItem *d, unsigned id, unsigned request, unsigned char *state, unsigned char *source) {
     BYTE wanted = request == request_default ? energy_normal : request == request_on ? energy_max : energy_eco;
     BYTE mark;
@@ -1055,8 +1129,10 @@ static unsigned energy_apply(DynItem *d, unsigned id, unsigned request, unsigned
     }
     BYTE before = (BYTE)d->current;
     d->current = wanted;
-    if (!save_energy_choices()) {
+    if (!save_energy_choices() || !persist_energy(d->key, wanted)) {
         d->current = before;
+        save_energy_choices();
+        persist_energy(d->key, before);
         dynamic_check(id, state, source, &mark);
         return record_failed;
     }
@@ -1237,10 +1313,10 @@ static unsigned dynamic_check(unsigned id, unsigned char *state, unsigned char *
     }
     *source = (unsigned char)(8 + d->type);
 
-    BOOL shown = dyn_on(d->type, d->current) || (d->type == dyn_startup && d->running);
+    BOOL shown = dyn_on(d->type, d->current);
     *state = shown ? on : off;
     if (d->locked == 2) { *state = failed; return unreadable; }
-    if (d->current == d->baseline && shown == dyn_on(d->type, d->baseline)) *mark = *state;
+    if (d->current == d->baseline) *mark = *state;
     if (d->locked) return read_only;
     if (d->type == dyn_stop) return live_toggle;
     return d->type == dyn_service || d->type == dyn_task ? live_toggle : saved_toggle;
@@ -1310,13 +1386,36 @@ static BOOL close_running_program(const DynItem *d) {
     return closed;
 }
 
+unsigned o3_item_kind(unsigned id) {
+    if (id <= item_count || id - item_count > dyn_count) return 0;
+    const DynItem *d = dyn_items[id - item_count - 1];
+    if (d->type == dyn_stop) return d->place == 0 ? 6 : d->place == 1 ? 7 : 8;
+    return d->type;
+}
+
+const char *o3_item_key(unsigned id) {
+    static char text[300];
+    if (id <= item_count || id - item_count > dyn_count) return "";
+    const DynItem *d = dyn_items[id - item_count - 1];
+    const WCHAR *key = d->type == dyn_startup && d->image[0] ? d->image : d->key;
+    if (d->type == dyn_task) {
+        const WCHAR *last = key;
+        for (const WCHAR *p = key; *p; ++p) if (*p == '\\') last = p + 1;
+        key = last;
+    }
+    to_ansi(key, text, sizeof text);
+    return text;
+}
+
+static BOOL usage_all;
+
 static void usage_of(const WCHAR *image, unsigned *count, ULONGLONG *memory, unsigned *pct) {
     *count = *pct = 0;
     *memory = 0;
     if (!image[0]) return;
     for (unsigned i = 0; i < proc_total; ++i) {
         const ProcInfo *p = &proc_list[i];
-        if (lstrcmpiW(p->name, image) || !user_process(p)) continue;
+        if (lstrcmpiW(p->name, image) || (!usage_all && !user_process(p))) continue;
         ++*count;
         *memory += p->ws;
         *pct += p->pct;
@@ -1349,14 +1448,20 @@ static BOOL refresh_detail(DynItem *d) {
         usage_of(d->image, &count, &memory, &pct);
         if (count) {
             usage_text(usage, memory, pct);
-            wsprintfA(text, "Startup %s | %s | berjalan | %s", startup_places[d->place].label, name, usage);
+            wsprintfA(text, dyn_on(d->type, d->current) ? "Startup %s | %s | berjalan | %s"
+                                                         : "Startup %s | %s | OFF, tapi sedang dibuka manual | %s",
+                      startup_places[d->place].label, name, usage);
         } else wsprintfA(text, "Startup %s | %s | tidak berjalan", startup_places[d->place].label, name);
     } else if (d->type == dyn_energy || d->type == dyn_stop) {
+        usage_all = d->type == dyn_stop && d->place == 2;
         usage_of(d->key, &count, &memory, &pct);
+        usage_all = FALSE;
         if (count) {
             usage_text(usage, memory, pct);
             if (d->type == dyn_stop && d->restarts)
                 wsprintfA(text, "Dijalankan ulang otomatis oleh Windows/aplikasi lain | %s", usage);
+            else if (d->type == dyn_stop && d->place == 2)
+                wsprintfA(text, "Proses Windows/driver | %u proses | %s", count, usage);
             else wsprintfA(text, "Program berjalan | %u proses | %s", count, usage);
         } else lstrcpyA(text, d->type == dyn_energy ? "Program tidak berjalan | pilihan berlaku saat program dibuka"
                                                     : "Program ditutup | klik lagi untuk membuka ulang");
@@ -1425,7 +1530,36 @@ static unsigned program_run(DynItem *d, BOOL run) {
     unsigned count, pct;
     ULONGLONG memory;
     snapshot_processes(TRUE);
+    usage_all = d->place == 2;
     usage_of(d->key, &count, &memory, &pct);
+    usage_all = FALSE;
+    if (d->place == 2) {
+        if (run) return count ? no_change : cannot_change;
+        if (!count) return no_change;
+        WCHAR text[400], image[64];
+        lstrcpynW(image, d->key, ARRAYSIZE(image));
+        wsprintfW(text, L"%s adalah proses milik Windows/driver (%u proses, %u MB RAM).\r\n\r\n"
+                        L"Menutupnya bisa membuat fitur terkait berhenti sampai Windows menjalankannya lagi "
+                        L"atau sampai PC restart. Tutup sekarang?", image, count, (unsigned)(memory >> 20));
+        if (MessageBoxW(FindWindowW(L"OffOrOnWindow", NULL), text, L"Tutup proses Windows",
+                        MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_SETFOREGROUND) != IDYES) return cancelled;
+        for (unsigned i = 0; i < proc_total; ++i) {
+            const ProcInfo *p = &proc_list[i];
+            if (lstrcmpiW(p->name, d->key) || critical_process(p->pid)) continue;
+            HANDLE h = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, p->pid);
+            if (!h) continue;
+            TerminateProcess(h, 0);
+            WaitForSingleObject(h, 2000);
+            CloseHandle(h);
+        }
+        Sleep(1500);
+        snapshot_processes(TRUE);
+        usage_all = TRUE;
+        usage_of(d->key, &count, &memory, &pct);
+        usage_all = FALSE;
+        d->current = count ? 1 : 0;
+        return count ? respawned : changed_live;
+    }
     d->current = count ? 1 : 0;
     if (run) {
         if (count) return no_change;
@@ -1530,6 +1664,11 @@ static unsigned dynamic_apply(unsigned id, unsigned request, unsigned char *stat
 }
 
 void o3_release_efficiency(void) {
+
+    applied_count = o3_eco_count = 0;
+}
+
+static void energy_release_all(void) {
     snapshot_processes(FALSE);
     for (unsigned i = 0; i < applied_count; ++i) {
         const ProcInfo *p = process_by_pid(applied[i].pid);
@@ -1570,10 +1709,12 @@ static BOOL dynamic_refresh(unsigned char *states, unsigned char *sources, unsig
         if (d->locked != 2) {
             DWORD value;
             if ((d->type == dyn_startup || d->type == dyn_background) && dynamic_read(d, &value)) d->current = value;
-            if (d->type == dyn_startup || (d->type == dyn_stop && d->place == 1)) {
+            if (d->type == dyn_startup || (d->type == dyn_stop && d->place >= 1)) {
                 unsigned count, pct;
                 ULONGLONG memory;
+                usage_all = d->type == dyn_stop && d->place == 2;
                 usage_of(d->type == dyn_startup ? d->image : d->key, &count, &memory, &pct);
+                usage_all = FALSE;
                 if (d->type == dyn_startup) d->running = (BYTE)(count != 0);
                 else d->current = count ? 1 : 0;
             }
@@ -1594,6 +1735,7 @@ static void dynamic_restore(unsigned *restored, unsigned *same, unsigned *failur
     for (unsigned i = 0; i < dyn_count; ++i) {
         DynItem *d = dyn_items[i];
         if (d->locked) continue;
+        if (d->type == dyn_energy && d->current != energy_normal) persist_energy(d->key, energy_normal);
         if (d->current == d->baseline) { ++*same; continue; }
         unsigned char state, source;
         unsigned result = dynamic_apply(item_count + 1 + i, request_default, &state, &source);
@@ -1601,4 +1743,5 @@ static void dynamic_restore(unsigned *restored, unsigned *same, unsigned *failur
         else if (result == no_change) ++*same;
         else ++*failures;
     }
+    energy_release_all();
 }

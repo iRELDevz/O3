@@ -15,7 +15,7 @@ open it runs itself in Windows efficiency mode.
 
 ## Download
 
-Grab `OffOrOn-v1.zip` from [Releases](https://github.com/iRELDevz/O3/releases),
+Grab the latest zip (`OffOrOn-v1.02.zip`) from [Releases](https://github.com/iRELDevz/O3/releases),
 unzip it and run `OffOrOn.exe`. Keep the `scan` folder next to the exe.
 
 O3 asks for admin every time it starts, because services and scheduled tasks
@@ -49,9 +49,15 @@ after you turn something off.
 About 60 services that keep Windows booting, signed in, secure or online are never
 listed (RPC, Defender, Firewall, core Windows Update, Plug and Play and so on).
 
+Since 1.02 the RAM tab also lists processes that belong to Windows or a driver
+(the ones running as SYSTEM), so the big memory users don't hide anymore. Anything
+Windows marks as critical can't be closed.
+
 Turning a service OFF sets it to Disabled and stops it right away. Turning a
-startup app OFF also offers to close the copy that is already running. If you
-open an app yourself later, O3 notices and shows it as ON again.
+startup app OFF also offers to close the copy that is already running. It stays
+OFF even if you open the app yourself later; the row just says it's running.
+
+The panel at the bottom tells you what happens if you turn the selected item off.
 
 ### Energy Saver tab
 
@@ -62,8 +68,8 @@ Lists every program running under your account. Each one can be set to:
 - **MAX**: no throttling, high priority.
 - **DEFAULT**: left to Windows.
 
-Choices are remembered per program name and applied again whenever that program
-starts, as long as O3 is open. Closing O3 puts everything back to normal.
+Choices are saved in Windows itself (Image File Execution Options), so they keep
+working after O3 is closed and after a restart. Set it back to DEFAULT to remove it.
 
 ## Backup and restore
 
@@ -99,6 +105,7 @@ The result is `build\OffOrOn.exe` with `build\scan` next to it.
 | `src/probes.c` | Reading and changing settings, timeouts, fallbacks |
 | `src/system_items.inc` | CPU, RAM and Energy Saver scanning |
 | `src/backup.inc` | Backup files and restore |
+| `src/effects.inc` | What-happens-if-off text for the bottom panel (assembly) |
 | `src/windows_settings.cpp` | Helper for settings stored outside the registry |
 | `src/audio_session.cpp` | Audio session reads |
 | `scan/` | Fallback readers (`probe.ps1`, `probe.cmd`) and their item list |

@@ -32,6 +32,6 @@ foreach ($definition in [IO.File]::ReadAllLines((Join-Path $PSScriptRoot 'probes
         } elseif ($on.Split(',') -contains $raw) { "$id=1" }
         elseif ($off -eq $raw) { "$id=0" }
     } catch {
-        # The parent tries a separate reader for any item with no result.
+
     }
 }

@@ -186,7 +186,7 @@ endstruc
 
 section .rdata
 className       db "OffOrOnWindow",0
-windowTitle     db "OffOrOn (O3)",0
+windowTitle     db "OffOrOn (O3) v1.02",0
 buttonClass     db "BUTTON",0
 editClass       db "EDIT",0
 searchPrompt    dw __utf16__('Cari fitur...'),0
@@ -222,7 +222,7 @@ searchHeading   db "Hasil pencarian",0
 activityHeading db "AKTIVITAS",0
 fmtToggleName   db "%s: %s",0
 fmtScanProgress db "Memeriksa %u dari %u fitur",0
-fmtLaunch       db "OffOrOn (O3) | Dibuka %u kali",0
+fmtLaunch       db "OffOrOn (O3) v1.02 | Dibuka %u kali",0
 recreatedBackup db "Backup awal hilang, dibuat ulang dari setelan saat ini.",0
 backupError     db "Backup gagal disimpan. ON/OFF dikunci sampai Pindai ulang berhasil.",0
 restoreTitle    db "Pulihkan backup",0
@@ -312,8 +312,12 @@ brushColors:
     dd RGB(32,102,160), RGB(64,84,104), RGB(84,106,128), RGB(110,114,122)
     dd RGB(176,182,190), RGB(234,238,244), RGB(204,209,216), RGB(150,156,166)
 
+section .rdata
+effectHeading   db "EFEK",0
+effectHint      db "Pilih sebuah item untuk melihat apa yang terjadi jika dinonaktifkan.",0
+
 section .data
-windowRect      dd 0, 0, 1000, 642
+windowRect      dd 0, 0, 1000, 690
 scanMessage     dq scanHeading
 
 section .bss
@@ -468,7 +472,7 @@ fit_work_area:
     jl      .physical
     mov     eax, [workArea+12]
     sub     eax, [workArea+4]
-    cmp     eax, 690
+    cmp     eax, 738
     jge     .done
 .physical:
     call    SetProcessDPIAware
@@ -1822,11 +1826,12 @@ draw_text:
 
 paint_window:
     enter_frame
-    box     BG, 0, 0, 1000, 642
+    box     BG, 0, 0, 1000, 690
     text_label 23, 7, 540, 29, subtitle, DIM, fontStrong, LABEL_MIDDLE
     call    paint_summary
     call    paint_grid
     call    paint_activity
+    call    paint_effect
     leave_frame
 
 %macro summary_card 3
@@ -1962,6 +1967,22 @@ paint_row_housing:
     mov     r8d, [rsp+108]
     xor     r9d, r9d
     call    SetViewportOrgEx
+    leave_frame
+
+paint_effect:
+    enter_frame
+    frame_panel 23, 624, 977, 684
+    box     LOG_BG, 34, 632, 966, 676
+    text_label 42, 634, 160, 652, effectHeading, INK, fontStrong, LABEL_MIDDLE
+    call    selected_feature
+    test    rax, rax
+    jz      .none
+    lea     ecx, [r10+1]
+    call    effect_text
+    text_pointer 162, 634, 958, 674, rax, SOFT, fontSmall, LABEL_WRAP
+    leave_frame
+.none:
+    text_label 162, 634, 958, 674, effectHint, DIM, fontSmall, LABEL_MIDDLE
     leave_frame
 
 paint_activity:
@@ -2204,4 +2225,5 @@ draw_button:
     mov     eax, 1
     leave_frame
 
+%include "effects.inc"
 %include "status.inc"
