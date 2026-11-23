@@ -1,72 +1,112 @@
-# OffOrOn (O3)
+# O3 (OffOrOn)
 
-O3 adalah aplikasi Windows x64 untuk melihat setelan Free Fire, MSI App Player/BlueStacks, dan Windows. Katalog memuat 112 fitur dengan status, deskripsi efek, ketersediaan, serta tombol ON dan OFF.
+O3 is a Windows optimizer built to be cheap to run and flexible. It doesn't ship
+with a fixed list of tweaks that assumes every PC is the same. Instead it looks at
+what is actually running on your Windows install and finds the things that can be
+turned off or closed for a while: services, scheduled tasks, startup apps,
+background apps, and programs eating RAM or CPU right now.
 
-## Build
+It started as a tool for Free Fire on MSI App Player / BlueStacks, so there are
+also switches for the emulator, the browser and a handful of Windows settings.
 
-Pasang NASM dan GCC dari MinGW-w64, lalu pastikan nasm.exe dan gcc.exe tersedia di PATH. Jalankan build.cmd dan buka build\OffOrOn.exe. Jika memindahkan hasil build, sertakan folder build\scan di samping executable.
+The UI is written in x64 assembly (NASM) and the rest is C with no C runtime, so
+the exe is around 220 KB and O3 itself sits at roughly 19 MB of RAM. While it is
+open it runs itself in Windows efficiency mode.
 
-## Cara scan bekerja
+## Download
 
-Saat O3 dibuka, pemindaian berlangsung di latar agar katalog tetap bisa dipakai. O3 membaca registry, API Windows, dan konfigurasi emulator secara langsung. PowerShell lalu CMD hanya dijalankan untuk item manifest yang gagal dibaca langsung, dan keduanya memakai path lengkap ke skrip di folder scan. Pindai ulang mengulangi pemindaian sesuai permintaan pemain.
+Grab `OffOrOn-v1.zip` from [Releases](https://github.com/iRELDevz/O3/releases),
+unzip it and run `OffOrOn.exe`. Keep the `scan` folder next to the exe.
 
-O3 memeriksa ketersediaan satu per satu dan menampilkan progres langkahnya. Hasil pemindaian menentukan isi tab utama. Fitur yang dapat diubah muncul pada tab kategorinya. Fitur baca-saja, fitur yang belum didukung, dan fitur dengan status gagal diverifikasi masuk ke tab Unavailable. Pencarian mengikuti sisi katalog yang sedang dipilih.
+O3 asks for admin every time it starts, because services and scheduled tasks
+can't be changed without it. The exe isn't signed yet, so SmartScreen will
+probably complain. Click "More info" and then "Run anyway".
 
-| Status | Arti |
+## How it works
+
+When O3 opens it scans the PC in the background. Settings are read directly from
+the registry, Windows APIs and the emulator config. The scripts in `scan/` are only
+used as a fallback for anything that couldn't be read directly.
+
+Every switch cycles through three states: DEFAULT, then ON or OFF, then back to
+DEFAULT. DEFAULT is whatever the value was the first time O3 saw it.
+
+After each change O3 reads the value back and shows a result code:
+
+- `200` the change went through
+- `55012` it didn't
+
+Anything that fails, or that Windows keeps restarting on its own, moves to the
+Unavailable tab until the next rescan.
+
+### CPU and RAM tabs
+
+These are built from your PC, not from a list. You'll see services, scheduled
+tasks, startup apps and Store apps allowed to run in the background, each with its
+current RAM and CPU usage. The numbers update live, so you can watch memory drop
+after you turn something off.
+
+About 60 services that keep Windows booting, signed in, secure or online are never
+listed (RPC, Defender, Firewall, core Windows Update, Plug and Play and so on).
+
+Turning a service OFF sets it to Disabled and stops it right away. Turning a
+startup app OFF also offers to close the copy that is already running. If you
+open an app yourself later, O3 notices and shows it as ON again.
+
+### Energy Saver tab
+
+Lists every program running under your account. Each one can be set to:
+
+- **ECO**: Windows efficiency mode (EcoQoS) plus idle priority. Lifted while the
+  window is in front.
+- **MAX**: no throttling, high priority.
+- **DEFAULT**: left to Windows.
+
+Choices are remembered per program name and applied again whenever that program
+starts, as long as O3 is open. Closing O3 puts everything back to normal.
+
+## Backup and restore
+
+The first time it runs, O3 creates `DO NOT DELETE THIS backupfirst` next to the exe
+(or `%LOCALAPPDATA%\OffOrOn` if that folder isn't writable).
+
+- `first-run.json` is a snapshot of your settings from the first launch. It is
+  never overwritten.
+- `added-items.json` records the original value of anything that became
+  changeable later, before O3 touches it.
+- `cpu-ram-baseline.txt` holds the defaults for the CPU and RAM items.
+
+The **Pulihkan backup** (restore) button puts everything recorded there back the
+way it was. If the backup can't be written, O3 won't let you change anything.
+
+## Building
+
+You need NASM and MinGW-w64 (GCC, windres) on your PATH. Then:
+
+```
+build.cmd
+```
+
+The result is `build\OffOrOn.exe` with `build\scan` next to it.
+
+## Source layout
+
+| File | What's in it |
 | --- | --- |
-| ON / OFF | Nilai berhasil dibaca dari sumber yang ditampilkan. |
-| Belum diatur | Nilai eksplisit tidak tersimpan; Windows menentukan perilaku bawaan. |
-| Belum terbaca | Sumber status otomatis belum tersedia untuk fitur ini. |
-| Tidak tersedia | Prasyarat fitur tidak ditemukan pada perangkat ini. |
-| 55012 | Pembacaan langsung, PowerShell, dan CMD tidak menghasilkan status yang valid. |
+| `src/main.asm` | Window, tabs, paging, search, buttons |
+| `src/catalogue.inc` | Text for the built-in items |
+| `src/status.inc` | Device summary and emulator profile |
+| `src/probes.c` | Reading and changing settings, timeouts, fallbacks |
+| `src/system_items.inc` | CPU, RAM and Energy Saver scanning |
+| `src/backup.inc` | Backup files and restore |
+| `src/windows_settings.cpp` | Helper for settings stored outside the registry |
+| `src/audio_session.cpp` | Audio session reads |
+| `scan/` | Fallback readers (`probe.ps1`, `probe.cmd`) and their item list |
 
-## Kontrol ON dan OFF
+## License
 
-O3 dapat mengubah setelan Windows, Edge/Chrome, konfigurasi emulator, dan indikator sentuhan Android. Jumlah yang tersedia bergantung pada perangkat. Pemain memilih ON atau OFF pada satu fitur, lalu O3 membaca ulang hasilnya. Setelan browser dan emulator hanya bisa diubah saat aplikasinya tertutup, termasuk proses latar dan Startup Boost.
+MIT with one change: you can't sell O3 or anything built mainly on it unless the
+repo owner says so in writing, or you're a contributor whose PR got merged. See
+[LICENSE](LICENSE) for the exact wording.
 
-Tombol nonaktif ketika fitur tampil sebagai Status saja, Belum didukung O3, Tidak tersedia, atau statusnya belum dapat diverifikasi. Pengaturan emulator, resolusi, dan DPI dibaca sebagai informasi.
-
-## Tab CPU dan RAM
-
-Saat scan, O3 mendata isi PC: service Windows (Otomatis/Manual), scheduled task, program startup, dan izin berjalan di latar untuk aplikasi Store. Tab CPU berisi service dengan pemakaian CPU rata-rata 1% atau lebih, service yang tidak berjalan tetapi bisa dipicu, scheduled task, dan aplikasi latar. Tab RAM berisi service yang sedang berjalan dan program startup, diurutkan dari pemakaian RAM terbesar.
-
-O3 meminta izin administrator (UAC) setiap kali dibuka karena service dan scheduled task hanya bisa diubah oleh admin. Service yang menjaga Windows tetap bisa menyala, login, aman, dan online tidak ditampilkan, misalnya RPC, Defender, Firewall, Windows Update inti, dan Plug and Play.
-
-DEFAULT pada item CPU/RAM adalah nilai yang O3 lihat saat pertama kali menemukan item tersebut. Nilai itu disimpan di `cpu-ram-baseline.txt`. Untuk service, OFF berarti Disabled dan service langsung dihentikan.
-
-Setiap perubahan menampilkan kode hasil: 200 jika berhasil, 55012 jika gagal. Item yang gagal diubah pindah ke tab Unavailable sampai Pindai ulang.
-
-## Energy Saver
-
-Tab Energy Saver berisi semua program yang sedang berjalan di akun kamu, diurutkan dari pemakaian RAM terbesar. Bagian inti Windows seperti svchost, csrss, dwm, explorer, dan Defender tidak ditampilkan.
-
-Setiap program punya tiga pilihan, berganti setiap klik: DEFAULT, ECO, MAX, lalu kembali ke DEFAULT.
-
-- ECO menyalakan Efficiency mode Windows (EcoQoS) dan menurunkan prioritas ke Idle. ECO dilepas sementara saat jendela program itu sedang dipakai di depan.
-- MAX mematikan EcoQoS dan menaikkan prioritas ke High.
-- DEFAULT mengembalikan pengaturan ke Windows.
-
-Pilihan disimpan per nama program di `energy-choices.txt`. Pilihan itu diterapkan lagi setiap kali program dibuka, selama O3 berjalan. Saat O3 ditutup, semua program kembali normal.
-
-O3 menjaga dirinya tetap ringan. O3 berjalan dengan EcoQoS dan prioritas di bawah normal, mengembalikan memorinya setelah scan, dan saat diminimalkan hanya menerapkan pilihan Energy Saver tanpa membaca ulang semua setelan.
-## Backup dan pemulihan
-
-Folder `DO NOT DELETE THIS backupfirst` di samping EXE menyimpan dua file. Jika folder EXE tidak bisa ditulisi, kedua file disimpan di `%LOCALAPPDATA%\OffOrOn`.
-
-- `first-run.json` adalah potret saat O3 pertama kali dibuka. File ini tidak pernah ditimpa.
-- `added-items.json` mencatat nilai awal fitur yang baru bisa diubah setelah potret pertama, misalnya karena O3 diperbarui atau aplikasi baru dipasang. Setiap fitur dicatat sekali, sebelum O3 mengubahnya untuk pertama kali.
-
-Jika `first-run.json` hilang, O3 membuatnya ulang dari setelan saat itu dan menandainya `"recreated":true`. ON/OFF hanya dikunci selama backup gagal disimpan.
-
-Tombol Pulihkan backup mengembalikan setiap fitur yang tercatat ke nilai awalnya. Nilai registry dikembalikan persis, termasuk menghapus nilai yang semula tidak ada. Setelan per aplikasi (26, 33-37, 58, 88) tidak ikut dipulihkan. Item CPU/RAM dikembalikan ke nilai di `cpu-ram-baseline.txt`.
-
-## Struktur sumber
-
-- src/main.asm memuat jendela dan navigasi Win32.
-- src/catalogue.inc memuat teks 112 fitur.
-- src/status.inc memuat pembacaan ringkasan perangkat dan profil emulator.
-- src/probes.c mengelola pembaca status, batas waktu, dan fallback.
-- src/backup.inc menyimpan backup dan menjalankan pemulihan.
-- src/system_items.inc memindai dan mengubah service, scheduled task, startup, dan aplikasi latar untuk tab CPU dan RAM.
-- src/o3.manifest meminta izin administrator.
-- scan/probes.txt mendefinisikan 37 pemeriksaan otomatis. probe.ps1 dan probe.cmd menjalankan pembaca shell.
+`src/vendor/jsmn.h` is by Serge Zaitsev under the plain MIT license.
