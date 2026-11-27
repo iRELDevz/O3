@@ -14,7 +14,7 @@ gcc -std=c11 -Os -Wall -Wextra -fno-stack-protector -fno-builtin -fno-tree-loop-
     -c src/probes.c -o build/probes.obj || exit /b 1
 g++ -std=c++17 -Os -Wall -Wextra -fno-exceptions -fno-rtti -c src/audio_session.cpp -o build/audio_session.obj || exit /b 1
 gcc -nostdlib -nostartfiles -Wl,-e,entry -Wl,--subsystem,windows build/main.obj build/probes.obj build/audio_session.obj build/o3res.obj -lole32 -loleaut32 -luuid -lws2_32 -lpsapi ^
-    -luser32 -lgdi32 -ladvapi32 -lpowrprof -lwlanapi -lshell32 -lshlwapi -lkernel32 -o build/OffOrOn.exe || exit /b 1
+    -luser32 -lgdi32 -ladvapi32 -lpowrprof -lwlanapi -lpdh -lshell32 -lshlwapi -lkernel32 -o build/OffOrOn.exe || exit /b 1
 if not exist build\scan mkdir build\scan
 copy /y scan\probes.txt build\scan\probes.txt >nul || exit /b 1
 copy /y scan\probe.ps1 build\scan\probe.ps1 >nul || exit /b 1

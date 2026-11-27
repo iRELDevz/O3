@@ -10,12 +10,12 @@ It started as a tool for Free Fire on MSI App Player / BlueStacks, so there are
 also switches for the emulator, the browser and a handful of Windows settings.
 
 The UI is written in x64 assembly (NASM) and the rest is C with no C runtime, so
-the exe is around 220 KB and O3 itself sits at roughly 19 MB of RAM. While it is
-open it runs itself in Windows efficiency mode.
+the main executable stays small. While it is open it runs itself in Windows
+efficiency mode. Runtime memory and performance depend on the PC and enabled features.
 
 ## Download
 
-Grab the latest zip (`OffOrOn-v1.02.zip`) from [Releases](https://github.com/iRELDevz/O3/releases),
+Grab the latest zip (`OffOrOn-v3.zip`) from [Releases](https://github.com/iRELDevz/O3/releases),
 unzip it and run `OffOrOn.exe`. Keep the `scan` folder next to the exe.
 
 O3 asks for admin every time it starts, because services and scheduled tasks
@@ -71,6 +71,26 @@ Lists every program running under your account. Each one can be set to:
 Choices are saved in Windows itself (Image File Execution Options), so they keep
 working after O3 is closed and after a restart. Set it back to DEFAULT to remove it.
 
+### MISC tab (v3)
+
+The MISC tab shows hardware information, credits, license information, and all five
+special-feature switches:
+
+- **O3SLE — Super Latency Engine**
+- **Anti-BugMouse**
+- **GPU Offload**
+- **O3EGLE — NextGen Latency Engine**
+- **O3SAS — Smooth Anti-Spike**
+
+O3EGLE and O3SAS require O3SLE to be enabled. Session-specific behavior is applied
+while `HD-Player.exe` is running. O3EGLE includes adaptive CPU-idle/pacer behavior;
+O3SAS manages busy emulator threads and selected background activity. Read the
+in-app effect panel before enabling a feature.
+
+These features change system or emulator settings and may increase CPU power use
+or heat. Performance improvements are not guaranteed. This release has been built
+successfully, but has not been validated in-game as part of release preparation.
+
 ## Backup and restore
 
 The first time it runs, O3 creates `DO NOT DELETE THIS backupfirst` next to the exe
@@ -100,6 +120,7 @@ The result is `build\OffOrOn.exe` with `build\scan` next to it.
 | File | What's in it |
 | --- | --- |
 | `src/main.asm` | Window, tabs, paging, search, buttons |
+| `src/misc.inc` | Hardware information and all five MISC special features |
 | `src/catalogue.inc` | Text for the built-in items |
 | `src/status.inc` | Device summary and emulator profile |
 | `src/probes.c` | Reading and changing settings, timeouts, fallbacks |

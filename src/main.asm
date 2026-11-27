@@ -61,7 +61,7 @@ ID_ENERGY      equ 107
 ID_UNAVAILABLE equ 108
 ID_MISC        equ 109
 ID_SPECIAL     equ 180
-ID_LICENSE     equ 184
+ID_LICENSE     equ 185
 ID_PREV        equ 113
 ID_NEXT        equ 114
 ID_SEARCH      equ 115
@@ -190,7 +190,7 @@ endstruc
 
 section .rdata
 className       db "OffOrOnWindow",0
-windowTitle     db "OffOrOn (O3) v1.02",0
+windowTitle     db "OffOrOn (O3) v3",0
 buttonClass     db "BUTTON",0
 editClass       db "EDIT",0
 searchPrompt    dw __utf16__('Cari fitur...'),0
@@ -226,7 +226,7 @@ searchHeading   db "Hasil pencarian",0
 activityHeading db "AKTIVITAS",0
 fmtToggleName   db "%s: %s",0
 fmtScanProgress db "Memeriksa %u dari %u fitur",0
-fmtLaunch       db "OffOrOn (O3) v1.02 | Dibuka %u kali",0
+fmtLaunch       db "OffOrOn (O3) v3 | Dibuka %u kali",0
 recreatedBackup db "Backup awal hilang, dibuat ulang dari setelan saat ini.",0
 backupError     db "Backup gagal disimpan. ON/OFF dikunci sampai Pindai ulang berhasil.",0
 closeTitle      db "Tutup O3",0
@@ -933,10 +933,12 @@ create_ui:
     add_button 0, TAB_TOP, 160, TAB_HEIGHT, ID_ENERGY, energyTab, tabButtons+48
     add_button 0, TAB_TOP, 160, TAB_HEIGHT, ID_UNAVAILABLE, unavailableTab, tabButtons+56
     add_button 0, TAB_TOP, 160, TAB_HEIGHT, ID_MISC, miscTab, tabButtons+64
-    add_button 870, 223, SWITCH_WIDTH, SWITCH_HEIGHT, ID_SPECIAL, toggleOn, specialButtons
-    add_button 870, 281, SWITCH_WIDTH, SWITCH_HEIGHT, ID_SPECIAL+1, toggleOn, specialButtons+8
-    add_button 870, 339, SWITCH_WIDTH, SWITCH_HEIGHT, ID_SPECIAL+2, toggleOn, specialButtons+16
-    add_button 822, 458, 128, 26, ID_LICENSE, licenseButtonText, specialButtons+24
+    add_button 870, 218, SWITCH_WIDTH, SWITCH_HEIGHT, ID_SPECIAL, toggleOn, specialButtons
+    add_button 870, 264, SWITCH_WIDTH, SWITCH_HEIGHT, ID_SPECIAL+1, toggleOn, specialButtons+8
+    add_button 870, 310, SWITCH_WIDTH, SWITCH_HEIGHT, ID_SPECIAL+2, toggleOn, specialButtons+16
+    add_button 870, 356, SWITCH_WIDTH, SWITCH_HEIGHT, ID_SPECIAL+3, toggleOn, specialButtons+24
+    add_button 870, 402, SWITCH_WIDTH, SWITCH_HEIGHT, ID_SPECIAL+4, toggleOn, specialButtons+32
+    add_button 822, 458, 128, 26, ID_LICENSE, licenseButtonText, specialButtons+40
     mov     dword [rsp+96], 0
 .row:
     mov     ecx, [rsp+96]

@@ -6,6 +6,11 @@ extern EnumDisplaySettingsA, ChangeDisplaySettingsA, GetSystemCpuSetInformation,
 extern GetProcessWorkingSetSizeEx, SetProcessWorkingSetSizeEx, OpenSCManagerA, OpenServiceA, ControlService, CloseServiceHandle
 extern WlanOpenHandle, WlanCloseHandle, WlanEnumInterfaces, WlanSetInterface, WlanFreeMemory
 extern PowerReadACValueIndex, PowerReadDCValueIndex, PowerWriteACValueIndex, PowerWriteDCValueIndex
+extern CreateWaitableTimerExW, SetWaitableTimer, WaitForSingleObject, QueryPerformanceCounter, QueryPerformanceFrequency
+extern GetCurrentThread, SetThreadPriority, SetThreadSelectedCpuSets
+extern OpenThread, GetThreadTimes, Thread32First, Thread32Next, StartServiceA, IsProcessorFeaturePresent, SendMessageTimeoutA
+extern GetSystemTimes, PdhOpenQueryA, PdhAddEnglishCounterA, PdhCollectQueryData, PdhGetFormattedCounterArrayA
+extern GetSystemPowerStatus, GetThreadPriority, GetProcessIdOfThread, PdhGetFormattedCounterValue
 
 HKEY_LM        equ -2147483646
 HKEY_CU        equ -2147483647
@@ -15,7 +20,13 @@ SLE_REGS       equ 20
 GPU_REGS       equ 3
 SESSION_REGS   equ 1
 SLE_CONFS      equ 4
-FEATURES       equ 3
+FEATURES       equ 5
+SAS_REGS       equ 8
+SAS_POWER      equ 14
+SAS_CONFS      equ 2
+SAS_MAX        equ 1024
+SAS_KEEP       equ 0x7FFFFFF0
+SAS_MIN_CPU    equ 2000000
 CONF_SIZE      equ 524288+64
 
 %macro enter4 0
@@ -87,22 +98,78 @@ hwValues        dq hwCpu, hwGpu0, hwGpu1, hwBoard, hwRam, hwDisk
 spTitle0        db "O3SLE - Super Latency Engine",0
 spTitle2        db "Anti-BugMouse",0
 spTitle3        db "GPU Offload",0
+spTitle4        db "O3EGLE - NextGen Latency Engine",0
+spTitleSas      db "O3SAS - Smooth Anti-Spike",0
+spDetailSas     db "Butuh O3SLE ON. CPU naik seketika, thread render terkini prioritas, disk tanpa sleep, layanan latar dijeda.",0
+spEffectSas     db "Tanpa restart. Saat HD-Player jalan: 2 thread HD-Player dengan CPU terbanyak 10 detik terakhir dijadikan HIGHEST (bukan total sejak dibuat, "
+                db "jadi ikut pindah saat lobby/match berganti), prioritas asli disimpan dan dikembalikan. Selalu: CPU langsung naik frekuensi saat ada input, "
+                db "naik cepat turun pelan, thread diutamakan ke P-core, MMCSS Games tinggi, network throttling OFF, HD-Player selalu High, transparansi OFF, "
+                db "maintenance otomatis OFF, disk/NVMe/AHCI tanpa hemat daya, overlay FPS dan notifikasi emulator OFF. Pembantu emulator ke E-core, RAM latar "
+                db "dipangkas, updater/Widgets dibekukan, SysMain/Search/telemetri/Xbox dijeda. Cek Memory Integrity, VT-x, sisa disk. OFF = nilai lama.",0
+msgSasNeed      db "409 - O3SAS butuh O3SLE. Nyalakan O3SLE dulu.",0
+msgSasOn        db "200 - O3SAS aktif. Thread render, layanan dan aplikasi latar diatur otomatis saat HD-Player jalan.",0
+msgSasOff       db "200 - O3SAS dimatikan. Registry, power setting, layanan dan setelan emulator kembali ke nilai lama.",0
+msgSasLater     db " Overlay FPS dan notifikasi emulator diubah setelah HD-Player ditutup.",0
+warnHvci        db " PERINGATAN: Memory Integrity ON, FPS bisa turun 5-15%. Matikan manual di Windows Security bila mau.",0
+warnVirt        db " PERINGATAN: virtualisasi CPU (VT-x/AMD-V) mati, nyalakan di BIOS.",0
+warnDisk        db " PERINGATAN: sisa disk C: di bawah 15 GB, bisa menyebabkan stutter.",0
+hvciKey         db 'SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity',0
+sasEnabled      db "Enabled",0
+sysRoot         db 'C:\',0
+immersiveText   db "ImmersiveColorSet",0
+gamesKey        db 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games',0
+gpuPrioValue    db "GPU Priority",0
+prioValue       db "Priority",0
+schedCatValue   db "Scheduling Category",0
+sfioValue       db "SFIO Priority",0
+highText        db "High",0
+netThrottleValue db "NetworkThrottlingIndex",0
+ifeoPerfKey     db 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\HD-Player.exe\PerfOptions',0
+cpuPrioValue    db "CpuPriorityClass",0
+personalizeKey  db 'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize',0
+transValue      db "EnableTransparency",0
+maintKey        db 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\Maintenance',0
+maintValue      db "MaintenanceDisabled",0
+fpsDispKey      db "enable_fps_display",0
+notifKey        db "enable_notifications",0
+sSysMain        db "SysMain",0
+sWSearch        db "WSearch",0
+sDiag           db "DiagTrack",0
+sXblAuth        db "XblAuthManager",0
+sXblSave        db "XblGameSave",0
+zEdgeUpd        db "MicrosoftEdgeUpdate.exe",0
+zGoogleUpd      db "GoogleUpdate.exe",0
+zAdobe          db "AdobeARM.exe",0
+zWidgets        db "Widgets.exe",0
+zWidgetSvc      db "WidgetService.exe",0
+hAgent          db "HD-Agent.exe",0
+hAdb            db "HD-Adb.exe",0
+hMim            db "HD-MultiInstanceManager.exe",0
+dwSix           dd 6
+dwEight         dd 8
+dwFull          dd 0xFFFFFFFF
 spDetail0       db "Power, timer 0.5 ms, P-core, prioritas CPU/GPU, refresh max, WiFi, update dan sync ditahan selama main.",0
 spDetail2       db "Mouse acceleration OFF, popup Sticky/Filter/Toggle Keys tidak muncul.",0
 spDetail3       db "GPU dedicated, dekode ASTC di GPU, HAGS ON. Emulator harus tertutup.",0
-spEffect0       db "Selalu: High performance, core parking OFF, CPU min 100%, turbo agresif, USB/PCIe/WiFi tanpa hemat daya, timer global, scheduler foreground, "
-                db "Game DVR/Delivery Optimization OFF, refresh rate max, animasi OFF, keyboard repeat cepat, HD-Player fullscreen opt OFF + DPI, QoS DSCP 46, "
-                db "scan Defender saat idle, emulator: core, FPS, V-Sync OFF. Saat HD-Player jalan: timer 0.5 ms, High, P-core, EcoQoS OFF, GPU High, RAM dikunci, "
-                db "standby dibersihkan, aplikasi latar ke E-core, OneDrive/Drive dibekukan, update Windows dihentikan, WiFi scan OFF, notifikasi OFF. OFF = nilai lama.",0
+spDetail4       db "Butuh O3SLE ON. Pacer 0.5 ms + TPAUSE, CPU idle OFF, otomatis turun ke C1 saat panas/baterai.",0
+spEffect0       db "Saat HD-Player jalan: timer 0.5 ms dijaga watchdog (dicek tiap 2 detik, status live di atas), High, P-core, EcoQoS OFF, GPU High, RAM dikunci, "
+                db "standby prioritas rendah dibuang hanya saat RAM bebas tipis (cek tiap 10 detik, cache game tetap), aplikasi latar ke E-core, sync dibekukan, "
+                db "update Windows dihentikan, WiFi scan OFF, notifikasi OFF. Selalu: High performance, core parking OFF, CPU min 100%, turbo agresif, "
+                db "USB/PCIe/WiFi tanpa hemat daya, timer global, scheduler foreground, Game DVR/Delivery Optimization OFF, refresh rate max, animasi OFF, "
+                db "keyboard repeat cepat, HD-Player fullscreen opt OFF + DPI, QoS DSCP 46, scan Defender saat idle, emulator: core, FPS, V-Sync OFF. OFF = nilai lama.",0
 spEffect2       db "Jika aktif: Enhance pointer precision OFF, gerakan mouse 1:1 dan aim tidak loncat saat mouse digerakkan cepat. Shift 5x atau ditahan "
                 db "tidak memunculkan popup Sticky/Filter/Toggle Keys. Kecepatan pointer tidak berubah. Jika dimatikan: setelan lama dikembalikan.",0
 spEffect3       db "Jika aktif: HD-Player dipaksa memakai GPU dedicated (bukan iGPU), dekode tekstur ASTC pindah ke GPU (CPU lebih lega, stutter efek berkurang), "
                 db "optimasi game berjendela ON, Hardware-accelerated GPU scheduling ON (berlaku setelah restart). Emulator harus tertutup. Jika dimatikan: nilai lama dikembalikan.",0
-spTitles        dq spTitle0, spTitle2, spTitle3
-spDetails       dq spDetail0, spDetail2, spDetail3
-spEffects       dq spEffect0, spEffect2, spEffect3
-featOn          dq feat_sle_on, feat_mouse_on, feat_gpu_on
-featOff         dq feat_sle_off, feat_mouse_off, feat_gpu_off
+spEffect4       db "Hanya bisa dinyalakan bila O3SLE ON. Saat HD-Player jalan: CPU idle OFF (core tidak tidur ke C-state dalam), pacer O3 di E-core berdetak "
+                db "tiap 0.5 ms (timer high-resolution + spin TPAUSE C0.1, lebih dingin dari busy-wait biasa). Adaptif: pakai baterai atau CPU throttle "
+                db "(panas/batas daya) 6 detik = turun ke mode C1 (idle hanya C-state paling dangkal), naik lagi setelah 30 detik normal; 2x panas = C1 "
+                db "sampai main selesai. Mode safer: CPU atau GPU 100% 20 detik = O3EGLE mati otomatis. Selesai main atau OFF: CPU idle kembali ke nilai lama.",0
+spTitles        dq spTitle0, spTitle2, spTitle3, spTitle4, spTitleSas
+spDetails       dq spDetail0, spDetail2, spDetail3, spDetail4, spDetailSas
+spEffects       dq spEffect0, spEffect2, spEffect3, spEffect4, spEffectSas
+featOn          dq feat_sle_on, feat_mouse_on, feat_gpu_on, feat_egle_on, feat_sas_on
+featOff         dq feat_sle_off, feat_mouse_off, feat_gpu_off, feat_egle_off, feat_sas_off
 
 msgSleOn        db "200 - O3SLE aktif. Setelan permanen sudah diterapkan. Sisanya otomatis jalan saat HD-Player dibuka (O3 harus tetap terbuka).",0
 msgSlePending   db "202 - O3SLE aktif. Setelan emulator diterapkan setelah HD-Player ditutup.",0
@@ -122,11 +189,26 @@ specialValue    db "Special",0
 fmtBackup       db "%c%u",0
 psName          db "ps",0
 ptName          db "pt",0
+idleName        db "q0",0
+idleMaxName     db "q1",0
+msgEgleNeed     db "409 - O3EGLE butuh O3SLE. Nyalakan O3SLE dulu.",0
+msgEgleOn       db "200 - O3EGLE aktif. Pacer 0.5 ms dan CPU idle OFF jalan otomatis saat HD-Player dibuka, turun ke C1 saat panas atau pakai baterai.",0
+limitCounterPath db "\Processor Information(_Total)\% Performance Limit",0
+fmtLive         db "%s | timer %u.%02u ms | throttle %u%%",0
+fmtLiveNoLimit  db "%s | timer %u.%02u ms",0
+liveEgleFull    db " | EGLE penuh",0
+liveEgleCool    db " | EGLE C1",0
+fmtLiveSas      db " | SAS %u",0
+msgEgleGuard    db "503 - Mode safer: CPU atau GPU 100% selama 20 detik berturut-turut. O3EGLE dimatikan otomatis, O3SLE tetap ON.",0
+gpuCounterPath  db "\GPU Engine(*engtype_3D)\Utilization Percentage",0
+msgEgleOff      db "200 - O3EGLE dimatikan. CPU idle dan pacer kembali normal, O3SLE tetap ON.",0
 mouseName       db "mouse",0
 ntdllName       db "ntdll.dll",0
 gdiName         db "gdi32.dll",0
 timerProcName   db "NtSetTimerResolution",0
 sysInfoProcName db "NtSetSystemInformation",0
+querySysName    db "NtQuerySystemInformation",0
+queryTimerName  db "NtQueryTimerResolution",0
 gpuPrioProcName db "D3DKMTSetProcessSchedulingPriorityClass",0
 profilePriv     db "SeProfileSingleProcessPrivilege",0
 
@@ -287,6 +369,36 @@ freezeList:     dq fOneDrive, fGDrive, fDropbox, fMega, fICloud, 0
 ecoreList:      dq eChrome, eEdge, eFirefox, eOpera, eBrave, eDiscord, eSpotify, eSteam, eSteamWeb, eEpic, eTelegram, eWhatsApp, eTeams, eZoom, 0
 gpuConf:
     dq astcKey, hardwareText
+sasRegs:
+    reg_item HKEY_LM, gamesKey, gpuPrioValue, 4, dwEight, 4
+    reg_item HKEY_LM, gamesKey, prioValue, 4, dwSix, 4
+    reg_item HKEY_LM, gamesKey, schedCatValue, 1, highText, 5
+    reg_item HKEY_LM, gamesKey, sfioValue, 1, highText, 5
+    reg_item HKEY_LM, profileKey, netThrottleValue, 4, dwFull, 4
+    reg_item HKEY_LM, ifeoPerfKey, cpuPrioValue, 4, dwThree, 4
+    reg_item HKEY_CU, personalizeKey, transValue, 4, dwZero, 4
+    reg_item HKEY_LM, maintKey, maintValue, 4, dwOne, 4
+sasConf:
+    dq fpsDispKey, zeroText
+    dq notifKey, zeroText
+sasServices:    dq sSysMain, sWSearch, sDiag, sXblAuth, sXblSave, 0
+sasFreeze:      dq zEdgeUpd, zGoogleUpd, zAdobe, zWidgets, zWidgetSvc, 0
+sasHelpers:     dq hAgent, hAdb, hMim, 0
+sasPower:
+    power_item subProcessor, latPerf, 100
+    power_item subProcessor, latPerf1, 100
+    power_item subProcessor, latEpp, 0
+    power_item subProcessor, incPol, 2
+    power_item subProcessor, decPol, 1
+    power_item subProcessor, incThr, 10
+    power_item subProcessor, decThr, 5
+    power_item subProcessor, heteroLong, 2
+    power_item subProcessor, heteroShort, 2
+    power_item subDisk, diskOff, 0
+    power_item subDisk, nvmeIdle1, 0
+    power_item subDisk, nvmeIdle2, 0
+    power_item subDisk, nvmeLat, 0
+    power_item subDisk, ahciLpm, 0
 powerItems:
     power_item subProcessor, procMin, 100
     power_item subProcessor, coreParking, 100
@@ -307,6 +419,23 @@ usbSuspend:   guid 0x48e6b7a6, 0x50f5, 0x4782, 0xa5, 0xd4, 0x53, 0xbb, 0x8f, 0x0
 subPcie:      guid 0x501a4d13, 0x42af, 0x4429, 0x9f, 0xd1, 0xa8, 0x21, 0x8c, 0x26, 0x8e, 0x20
 aspmSetting:  guid 0xee12f906, 0xd277, 0x404b, 0xb6, 0xda, 0xe5, 0xfa, 0x1a, 0x57, 0x6d, 0xf5
 subWifi:      guid 0x19cbb8fa, 0x5279, 0x450e, 0x9f, 0xac, 0x8a, 0x3d, 0x5f, 0xed, 0xd0, 0xc1
+latPerf:      guid 0x619b7505, 0x003b, 0x4e82, 0xb7, 0xa6, 0x4d, 0xd2, 0x9c, 0x30, 0x09, 0x71
+latPerf1:     guid 0x619b7505, 0x003b, 0x4e82, 0xb7, 0xa6, 0x4d, 0xd2, 0x9c, 0x30, 0x09, 0x72
+latEpp:       guid 0x4b70f900, 0xcdd9, 0x4e66, 0xaa, 0x26, 0xae, 0x84, 0x17, 0xf9, 0x81, 0x73
+incPol:       guid 0x465e1f50, 0xb610, 0x473a, 0xab, 0x58, 0x00, 0xd1, 0x07, 0x7d, 0xc4, 0x18
+decPol:       guid 0x40fbefc7, 0x2e9d, 0x4d25, 0xa1, 0x85, 0x0c, 0xfd, 0x85, 0x74, 0xba, 0xc6
+incThr:       guid 0x06cadf0e, 0x64ed, 0x448a, 0x89, 0x27, 0xce, 0x7b, 0xf9, 0x0e, 0xb3, 0x5d
+decThr:       guid 0x12a0ab44, 0xfe28, 0x4fa9, 0xb3, 0xbd, 0x4b, 0x64, 0xf4, 0x49, 0x60, 0xa6
+heteroLong:   guid 0x93b8b6dc, 0x0698, 0x4d1c, 0x9e, 0xe4, 0x06, 0x44, 0xe9, 0x00, 0xc8, 0x5d
+heteroShort:  guid 0xbae08b81, 0x2d5e, 0x4688, 0xad, 0x6a, 0x13, 0x24, 0x33, 0x56, 0x65, 0x4b
+subDisk:      guid 0x0012ee47, 0x9041, 0x4b5d, 0x9b, 0x77, 0x53, 0x5f, 0xba, 0x8b, 0x14, 0x42
+diskOff:      guid 0x6738e2c4, 0xe8a5, 0x4a42, 0xb1, 0x6a, 0xe0, 0x40, 0xe7, 0x69, 0x75, 0x6e
+nvmeIdle1:    guid 0xd639518a, 0xe56d, 0x4345, 0x8a, 0xf2, 0xb9, 0xf3, 0x2f, 0xb2, 0x61, 0x09
+nvmeIdle2:    guid 0xd3d55efd, 0xc1ff, 0x424e, 0x9d, 0xc3, 0x44, 0x1b, 0xe7, 0x83, 0x30, 0x10
+nvmeLat:      guid 0xfc95af4d, 0x40e7, 0x4b6d, 0x83, 0x5a, 0x56, 0xd1, 0x31, 0xdb, 0xc8, 0x0e
+ahciLpm:      guid 0x0b2d69d7, 0xa2a1, 0x449c, 0x96, 0x80, 0xf9, 0x1c, 0x70, 0x52, 0x1c, 0x60
+idleDisable:  guid 0x5d76a2ca, 0xe8c0, 0x402f, 0xa1, 0x33, 0x21, 0x58, 0x49, 0x2d, 0x58, 0xad
+idleMax:      guid 0x9943e905, 0x9a30, 0x4ec1, 0x9b, 0x99, 0x44, 0xdd, 0x3b, 0x76, 0xf7, 0xa2
 wifiPower:    guid 0x12bbebe6, 0x58d6, 0x4636, 0x95, 0xbb, 0x32, 0x17, 0xef, 0x86, 0x7c, 0x1a
 
 section .bss
@@ -359,7 +488,7 @@ miscTemp3       resb 160
 miscPlayer      resb 300
 miscConfPath    resb 300
 miscTempPath    resb 320
-miscEmuText     resb 128
+miscEmuText     resb 192
 miscBuf         resb 1104
 hwCpuRaw        resb 64
 hwCpu           resb 160
@@ -369,7 +498,50 @@ hwBoard         resb 200
 hwRam           resb 128
 hwDisk          resb 320
 hwDiskList      resb 256
-specialButtons  resq 4
+specialButtons  resq 6
+sasFt           resq 4
+sasScheme       resb 16
+sasOld          resd 2
+sasEntry        resd 8
+sasTids         resd 2
+sasStopped      resd 1
+sasFrozenCount  resd 1
+sasFrozen       resd 32
+sasSess         resd 1
+sasTick         resd 1
+sasPending      resd 1
+sasMsg          resb 640
+egleThread      resq 1
+egleRun         resd 1
+egleOld         resd 2
+egleFreq        resq 1
+egleScheme      resb 16
+guardCount      resd 1
+guardIdle       resq 1
+guardTotal      resq 1
+guardQuery      resq 1
+guardCounter    resq 1
+guardBuf        resb 262144
+procQuerySys    resq 1
+procQueryTimer  resq 1
+memList         resq 22
+purgeCool       resd 1
+liveTimer       resd 1
+liveLimit       resd 1
+limitQuery      resq 1
+limitCounter    resq 1
+egleTier        resd 1
+egleHot         resd 1
+egleCoolTicks   resd 1
+egleDrops       resd 1
+eglePause       resd 1
+sasOldPrio      resd 2
+sasTidPid       resd 2
+sasBest         resq 4
+sasPrevCount    resd 1
+sasCurCount     resd 1
+sasPrev         resq SAS_MAX*2
+sasCur          resq SAS_MAX*2
 confA           resb CONF_SIZE
 confB           resb CONF_SIZE
 
@@ -953,6 +1125,60 @@ misc_emu_text:
     mov     r8, [miscEmuName]
     test    r8, r8
     jz      .none
+    cmp     dword [timerOn], 0
+    je      .plain
+    mov     eax, [liveTimer]
+    xor     edx, edx
+    mov     ecx, 10000
+    div     ecx
+    mov     r9d, eax
+    mov     eax, edx
+    xor     edx, edx
+    mov     ecx, 100
+    div     ecx
+    mov     [rsp+32], rax
+    lea     rdx, [fmtLiveNoLimit]
+    mov     eax, [liveLimit]
+    cmp     eax, -1
+    je      .live
+    mov     ecx, 100
+    sub     ecx, eax
+    jns     .thr
+    xor     ecx, ecx
+.thr:
+    mov     [rsp+40], rcx
+    lea     rdx, [fmtLive]
+.live:
+    lea     rcx, [miscEmuText]
+    call    wsprintfA
+    cmp     qword [egleThread], 0
+    je      .sas
+    lea     rdx, [liveEgleFull]
+    cmp     dword [egleTier], 2
+    jne     .egle
+    lea     rdx, [liveEgleCool]
+.egle:
+    lea     rcx, [miscEmuText]
+    call    lstrcatA
+.sas:
+    cmp     dword [sasSess], 0
+    je      .live_done
+    xor     r8d, r8d
+    cmp     dword [sasTids], 0
+    setne   r8b
+    cmp     dword [sasTids+4], 0
+    setne   al
+    movzx   eax, al
+    add     r8d, eax
+    lea     rcx, [miscTemp]
+    lea     rdx, [fmtLiveSas]
+    call    wsprintfA
+    lea     rcx, [miscEmuText]
+    lea     rdx, [miscTemp]
+    call    lstrcatA
+.live_done:
+    leave_frame
+.plain:
     lea     r9, [emuStopText]
     cmp     dword [miscPidCount], 0
     je      .fmt
@@ -1345,6 +1571,12 @@ feat_sle_on:
 feat_sle_off:
     enter_frame
     call    session_stop
+    btr     dword [specialBits], 3
+    bt      dword [specialBits], 4
+    jnc     .nosas
+    call    feat_sas_off
+    btr     dword [specialBits], 4
+.nosas:
     lea     rcx, [sleRegs]
     mov     edx, SLE_REGS
     mov     r8d, 'S'
@@ -1370,6 +1602,1218 @@ feat_sle_off:
     mov     dword [emuPending], 2
 .msg:
     lea     rdx, [msgSleOff]
+    mov     [miscMsg], rdx
+    mov     eax, 1
+    leave_frame
+
+idle_set:
+    enter4
+    mov     rbx, rcx
+    mov     rsi, rdx
+    mov     edi, r8d
+    cmp     edi, -1
+    je      .restore
+    mov     rcx, rsi
+    call    has_backup
+    test    eax, eax
+    jnz     .new
+    lea     rax, [egleOld]
+    mov     [rsp+32], rax
+    xor     ecx, ecx
+    lea     rdx, [egleScheme]
+    lea     r8, [subProcessor]
+    mov     r9, rbx
+    call    PowerReadACValueIndex
+    test    eax, eax
+    jnz     .done
+    lea     rax, [egleOld+4]
+    mov     [rsp+32], rax
+    xor     ecx, ecx
+    lea     rdx, [egleScheme]
+    lea     r8, [subProcessor]
+    mov     r9, rbx
+    call    PowerReadDCValueIndex
+    test    eax, eax
+    jz      .save
+    mov     eax, [egleOld]
+    mov     [egleOld+4], eax
+.save:
+    mov     rcx, rsi
+    lea     rdx, [egleOld]
+    mov     r8d, 8
+    call    write_backup
+.new:
+    mov     [egleOld], edi
+    mov     [egleOld+4], edi
+    jmp     .write
+.restore:
+    mov     rcx, rsi
+    lea     rdx, [egleOld]
+    mov     r8d, 8
+    call    read_backup
+    test    eax, eax
+    jz      .done
+    mov     rcx, rsi
+    call    drop_backup
+.write:
+    mov     eax, [egleOld]
+    mov     [rsp+32], rax
+    xor     ecx, ecx
+    lea     rdx, [egleScheme]
+    lea     r8, [subProcessor]
+    mov     r9, rbx
+    call    PowerWriteACValueIndex
+    mov     eax, [egleOld+4]
+    mov     [rsp+32], rax
+    xor     ecx, ecx
+    lea     rdx, [egleScheme]
+    lea     r8, [subProcessor]
+    mov     r9, rbx
+    call    PowerWriteDCValueIndex
+    mov     eax, 1
+    leave4
+.done:
+    xor     eax, eax
+    leave4
+
+egle_tier:
+    enter_frame
+    mov     [rsp+120], ecx
+    mov     [egleTier], ecx
+    xor     ecx, ecx
+    lea     rdx, [rsp+96]
+    call    PowerGetActiveScheme
+    test    eax, eax
+    jnz     .done
+    mov     rcx, [rsp+96]
+    movups  xmm0, [rcx]
+    movups  [egleScheme], xmm0
+    call    LocalFree
+    mov     dword [rsp+112], 0
+    cmp     dword [rsp+120], 1
+    je      .full
+    cmp     dword [rsp+120], 2
+    je      .cool
+    lea     rcx, [idleDisable]
+    lea     rdx, [idleName]
+    mov     r8d, -1
+    call    idle_set
+    or      [rsp+112], eax
+    lea     rcx, [idleMax]
+    lea     rdx, [idleMaxName]
+    mov     r8d, -1
+    call    idle_set
+    or      [rsp+112], eax
+    jmp     .apply
+.full:
+    lea     rcx, [idleMax]
+    lea     rdx, [idleMaxName]
+    mov     r8d, -1
+    call    idle_set
+    or      [rsp+112], eax
+    lea     rcx, [idleDisable]
+    lea     rdx, [idleName]
+    mov     r8d, 1
+    call    idle_set
+    or      [rsp+112], eax
+    jmp     .apply
+.cool:
+    lea     rcx, [idleDisable]
+    lea     rdx, [idleName]
+    mov     r8d, -1
+    call    idle_set
+    or      [rsp+112], eax
+    lea     rcx, [idleMax]
+    lea     rdx, [idleMaxName]
+    mov     r8d, 1
+    call    idle_set
+    or      [rsp+112], eax
+.apply:
+    cmp     dword [rsp+112], 0
+    je      .done
+    xor     ecx, ecx
+    lea     rdx, [egleScheme]
+    call    PowerSetActiveScheme
+.done:
+    leave_frame
+
+egle_battery:
+    enter_frame
+    lea     rcx, [rsp+96]
+    call    GetSystemPowerStatus
+    xor     ecx, ecx
+    test    eax, eax
+    jz      .done
+    cmp     byte [rsp+96], 0
+    sete    cl
+.done:
+    mov     eax, ecx
+    leave_frame
+
+egle_adapt:
+    enter_frame
+    cmp     qword [egleThread], 0
+    je      .done
+    call    egle_battery
+    mov     [rsp+96], eax
+    xor     edx, edx
+    mov     eax, [liveLimit]
+    cmp     eax, -1
+    je      .hot_set
+    cmp     eax, 90
+    jae     .hot_set
+    mov     edx, 1
+.hot_set:
+    mov     [rsp+100], edx
+    cmp     dword [egleTier], 2
+    je      .cool
+    cmp     dword [rsp+96], 0
+    jne     .drop
+    cmp     dword [rsp+100], 0
+    je      .calm
+    inc     dword [egleHot]
+    cmp     dword [egleHot], 3
+    jb      .done
+    inc     dword [egleDrops]
+.drop:
+    mov     ecx, 2
+    call    egle_tier
+    mov     dword [egleHot], 0
+    mov     dword [egleCoolTicks], 0
+    jmp     .done
+.calm:
+    mov     dword [egleHot], 0
+    jmp     .done
+.cool:
+    cmp     dword [egleDrops], 2
+    jae     .done
+    mov     eax, [rsp+96]
+    or      eax, [rsp+100]
+    jz      .count
+    mov     dword [egleCoolTicks], 0
+    jmp     .done
+.count:
+    inc     dword [egleCoolTicks]
+    cmp     dword [egleCoolTicks], 15
+    jb      .done
+    mov     ecx, 1
+    call    egle_tier
+    mov     dword [egleCoolTicks], 0
+    mov     dword [egleHot], 0
+.done:
+    leave_frame
+
+egle_thread:
+    push    rbx
+    push    rsi
+    push    rdi
+    sub     rsp, 80
+    lea     rcx, [egleFreq]
+    call    QueryPerformanceFrequency
+    call    GetCurrentThread
+    mov     rcx, rax
+    mov     edx, 15
+    call    SetThreadPriority
+    mov     eax, [eCount]
+    test    eax, eax
+    jz      .timer
+    dec     eax
+    lea     rsi, [eIds]
+    lea     rsi, [rsi+rax*4]
+    call    GetCurrentThread
+    mov     rcx, rax
+    mov     rdx, rsi
+    mov     r8d, 1
+    call    SetThreadSelectedCpuSets
+.timer:
+    xor     ecx, ecx
+    xor     edx, edx
+    mov     r8d, 2
+    mov     r9d, 0x1F0003
+    call    CreateWaitableTimerExW
+    mov     rbx, rax
+    test    rbx, rbx
+    jz      .ret
+    mov     rax, [egleFreq]
+    xor     edx, edx
+    mov     ecx, 2000
+    div     rcx
+    mov     rdi, rax
+.loop:
+    cmp     dword [egleRun], 0
+    je      .exit
+    lea     rcx, [rsp+64]
+    call    QueryPerformanceCounter
+    mov     rsi, [rsp+64]
+    add     rsi, rdi
+    mov     qword [rsp+72], -4000
+    mov     rcx, rbx
+    lea     rdx, [rsp+72]
+    xor     r8d, r8d
+    xor     r9d, r9d
+    mov     qword [rsp+32], 0
+    mov     qword [rsp+40], 0
+    call    SetWaitableTimer
+    mov     rcx, rbx
+    mov     edx, -1
+    call    WaitForSingleObject
+    cmp     dword [egleTier], 2
+    je      .loop
+.spin:
+    lea     rcx, [rsp+64]
+    call    QueryPerformanceCounter
+    cmp     [rsp+64], rsi
+    jge     .loop
+    cmp     dword [eglePause], 0
+    je      .pause
+    rdtsc
+    add     eax, 4096
+    adc     edx, 0
+    mov     ecx, 1
+    db      0x66, 0x0F, 0xAE, 0xF1
+    jmp     .spin
+.pause:
+    pause
+    jmp     .spin
+.exit:
+    mov     rcx, rbx
+    call    CloseHandle
+.ret:
+    xor     eax, eax
+    add     rsp, 80
+    pop     rdi
+    pop     rsi
+    pop     rbx
+    ret
+
+egle_session:
+    enter_frame
+    test    ecx, ecx
+    jz      .stop
+    cmp     qword [egleThread], 0
+    jne     .done
+    mov     dword [egleHot], 0
+    mov     dword [egleCoolTicks], 0
+    mov     dword [egleDrops], 0
+    call    egle_battery
+    lea     ecx, [eax+1]
+    call    egle_tier
+    mov     dword [egleRun], 1
+    xor     ecx, ecx
+    xor     edx, edx
+    lea     r8, [egle_thread]
+    xor     r9d, r9d
+    mov     qword [rsp+32], 0
+    mov     qword [rsp+40], 0
+    call    CreateThread
+    mov     [egleThread], rax
+    jmp     .done
+.stop:
+    mov     rcx, [egleThread]
+    test    rcx, rcx
+    jz      .idle
+    mov     dword [egleRun], 0
+    mov     edx, 2000
+    call    WaitForSingleObject
+    mov     rcx, [egleThread]
+    call    CloseHandle
+    mov     qword [egleThread], 0
+.idle:
+    xor     ecx, ecx
+    call    egle_tier
+.done:
+    leave_frame
+
+feat_egle_on:
+    enter_frame
+    bt      dword [specialBits], 0
+    jnc     .fail
+.sle:
+    cmp     dword [timerOn], 0
+    je      .msg
+    mov     ecx, 1
+    call    egle_session
+.msg:
+    lea     rdx, [msgEgleOn]
+    mov     [miscMsg], rdx
+    mov     eax, 1
+    leave_frame
+.fail:
+    lea     rdx, [msgEgleNeed]
+    mov     [miscMsg], rdx
+    xor     eax, eax
+    leave_frame
+
+feat_egle_off:
+    enter_frame
+    xor     ecx, ecx
+    call    egle_session
+    lea     rdx, [msgEgleOff]
+    mov     [miscMsg], rdx
+    mov     eax, 1
+    leave_frame
+
+guard_gpu:
+    enter_frame
+    cmp     qword [guardQuery], 0
+    jne     .collect
+    xor     ecx, ecx
+    xor     edx, edx
+    lea     r8, [guardQuery]
+    call    PdhOpenQueryA
+    test    eax, eax
+    jnz     .fail
+    mov     rcx, [guardQuery]
+    lea     rdx, [gpuCounterPath]
+    xor     r8d, r8d
+    lea     r9, [guardCounter]
+    call    PdhAddEnglishCounterA
+    mov     rcx, [guardQuery]
+    call    PdhCollectQueryData
+    jmp     .zero
+.collect:
+    mov     rcx, [guardQuery]
+    call    PdhCollectQueryData
+    mov     dword [rsp+96], 262144
+    mov     dword [rsp+100], 0
+    lea     rax, [guardBuf]
+    mov     [rsp+32], rax
+    mov     rcx, [guardCounter]
+    mov     edx, 0x8200
+    lea     r8, [rsp+96]
+    lea     r9, [rsp+100]
+    call    PdhGetFormattedCounterArrayA
+    test    eax, eax
+    jnz     .zero
+    xorpd   xmm1, xmm1
+    lea     rax, [guardBuf]
+    mov     ecx, [rsp+100]
+.max:
+    test    ecx, ecx
+    jz      .done
+    cmp     dword [rax+8], 0
+    jne     .next
+    maxsd   xmm1, [rax+16]
+.next:
+    add     rax, 24
+    dec     ecx
+    jmp     .max
+.done:
+    cvttsd2si eax, xmm1
+    leave_frame
+.fail:
+    mov     qword [guardQuery], 0
+.zero:
+    xor     eax, eax
+    leave_frame
+
+guard_cpu:
+    enter_frame
+    lea     rcx, [rsp+96]
+    lea     rdx, [rsp+104]
+    lea     r8, [rsp+112]
+    call    GetSystemTimes
+    mov     rcx, [rsp+104]
+    add     rcx, [rsp+112]
+    mov     rdx, [rsp+96]
+    mov     r8, [guardTotal]
+    mov     r9, [guardIdle]
+    mov     [guardTotal], rcx
+    mov     [guardIdle], rdx
+    xor     eax, eax
+    test    r8, r8
+    jz      .done
+    sub     rcx, r8
+    jbe     .done
+    sub     rdx, r9
+    mov     rax, rcx
+    sub     rax, rdx
+    imul    rax, rax, 100
+    xor     edx, edx
+    div     rcx
+.done:
+    leave_frame
+
+egle_guard:
+    enter_frame
+    cmp     qword [egleThread], 0
+    je      .reset
+    call    guard_cpu
+    mov     [rsp+96], eax
+    call    guard_gpu
+    cmp     eax, 98
+    jae     .hot
+    cmp     dword [rsp+96], 98
+    jae     .hot
+    mov     dword [guardCount], 0
+    jmp     .done
+.hot:
+    inc     dword [guardCount]
+    cmp     dword [guardCount], 10
+    jb      .done
+    call    feat_egle_off
+    btr     dword [specialBits], 3
+    call    save_special
+    lea     rax, [spTitle4]
+    mov     [applyTitle], rax
+    lea     rax, [msgEgleGuard]
+    mov     [miscMsg], rax
+    mov     [applyMessage], rax
+    mov     rcx, [mainWindow]
+    call    redraw
+.reset:
+    mov     dword [guardCount], 0
+    mov     qword [guardTotal], 0
+.done:
+    leave_frame
+
+sas_power:
+    enter4
+    mov     [rsp+128], ecx
+    xor     ecx, ecx
+    lea     rdx, [rsp+96]
+    call    PowerGetActiveScheme
+    test    eax, eax
+    jnz     .done
+    mov     rcx, [rsp+96]
+    movups  xmm0, [rcx]
+    movups  [sasScheme], xmm0
+    call    LocalFree
+    lea     rbx, [sasPower]
+    xor     r12d, r12d
+.item:
+    cmp     r12d, SAS_POWER
+    jae     .apply
+    mov     ecx, 'W'
+    mov     edx, r12d
+    call    backup_name
+    cmp     dword [rsp+128], 0
+    je      .revert
+    mov     rcx, rax
+    call    has_backup
+    test    eax, eax
+    jnz     .new
+    lea     rax, [sasOld]
+    mov     [rsp+32], rax
+    xor     ecx, ecx
+    lea     rdx, [sasScheme]
+    mov     r8, [rbx]
+    mov     r9, [rbx+8]
+    call    PowerReadACValueIndex
+    test    eax, eax
+    jnz     .next
+    lea     rax, [sasOld+4]
+    mov     [rsp+32], rax
+    xor     ecx, ecx
+    lea     rdx, [sasScheme]
+    mov     r8, [rbx]
+    mov     r9, [rbx+8]
+    call    PowerReadDCValueIndex
+    test    eax, eax
+    jz      .save
+    mov     eax, [sasOld]
+    mov     [sasOld+4], eax
+.save:
+    lea     rcx, [miscName]
+    lea     rdx, [sasOld]
+    mov     r8d, 8
+    call    write_backup
+.new:
+    mov     eax, [rbx+16]
+    mov     [sasOld], eax
+    mov     [sasOld+4], eax
+    jmp     .put
+.revert:
+    mov     rcx, rax
+    lea     rdx, [sasOld]
+    mov     r8d, 8
+    call    read_backup
+    test    eax, eax
+    jz      .next
+    lea     rcx, [miscName]
+    call    drop_backup
+.put:
+    mov     eax, [sasOld]
+    mov     [rsp+32], rax
+    xor     ecx, ecx
+    lea     rdx, [sasScheme]
+    mov     r8, [rbx]
+    mov     r9, [rbx+8]
+    call    PowerWriteACValueIndex
+    mov     eax, [sasOld+4]
+    mov     [rsp+32], rax
+    xor     ecx, ecx
+    lea     rdx, [sasScheme]
+    mov     r8, [rbx]
+    mov     r9, [rbx+8]
+    call    PowerWriteDCValueIndex
+.next:
+    add     rbx, 24
+    inc     r12d
+    jmp     .item
+.apply:
+    xor     ecx, ecx
+    lea     rdx, [sasScheme]
+    call    PowerSetActiveScheme
+.done:
+    leave4
+
+sas_restore:
+    enter4
+    mov     ebx, ecx
+    lea     rax, [sasTids]
+    mov     r8d, [rax+rbx*4]
+    test    r8d, r8d
+    jz      .done
+    mov     dword [rax+rbx*4], 0
+    lea     rax, [sasOldPrio]
+    mov     edi, [rax+rbx*4]
+    cmp     edi, SAS_KEEP
+    je      .done
+    mov     ecx, 0xC00
+    xor     edx, edx
+    call    OpenThread
+    test    rax, rax
+    jz      .done
+    mov     r12, rax
+    mov     rcx, rax
+    call    GetProcessIdOfThread
+    lea     rdx, [sasTidPid]
+    cmp     eax, [rdx+rbx*4]
+    jne     .close
+    mov     rcx, r12
+    mov     edx, edi
+    call    SetThreadPriority
+.close:
+    mov     rcx, r12
+    call    CloseHandle
+.done:
+    leave4
+
+sas_boost:
+    enter4
+    mov     esi, ecx
+    mov     edi, edx
+    xor     ebx, ebx
+    cmp     dword [sasTids], 0
+    je      .slot
+    inc     ebx
+    cmp     dword [sasTids+4], 0
+    jne     .done
+.slot:
+    mov     ecx, 0xC00
+    xor     edx, edx
+    mov     r8d, esi
+    call    OpenThread
+    test    rax, rax
+    jz      .done
+    mov     r12, rax
+    lea     rax, [sasTids]
+    mov     [rax+rbx*4], esi
+    lea     rax, [sasTidPid]
+    mov     [rax+rbx*4], edi
+    lea     rax, [sasOldPrio]
+    mov     dword [rax+rbx*4], SAS_KEEP
+    mov     rcx, r12
+    call    GetThreadPriority
+    cmp     eax, 2
+    jge     .close
+    mov     [rsp+120], eax
+    mov     rcx, r12
+    mov     edx, 2
+    call    SetThreadPriority
+    test    eax, eax
+    jz      .close
+    mov     eax, [rsp+120]
+    lea     rdx, [sasOldPrio]
+    mov     [rdx+rbx*4], eax
+.close:
+    mov     rcx, r12
+    call    CloseHandle
+.done:
+    leave4
+
+sas_unthreads:
+    enter_frame
+    xor     ecx, ecx
+    call    sas_restore
+    mov     ecx, 1
+    call    sas_restore
+    mov     dword [sasPrevCount], 0
+    leave_frame
+
+sas_threads:
+
+    enter4
+    xor     eax, eax
+    mov     [sasBest], rax
+    mov     [sasBest+8], rax
+    mov     [sasBest+16], rax
+    mov     [sasBest+24], rax
+    mov     dword [sasCurCount], 0
+    mov     eax, [sasPrevCount]
+    mov     [rsp+120], eax
+    mov     ecx, 4
+    xor     edx, edx
+    call    CreateToolhelp32Snapshot
+    cmp     rax, -1
+    je      .done
+    mov     rdi, rax
+    mov     dword [sasEntry], 28
+    mov     rcx, rdi
+    lea     rdx, [sasEntry]
+    call    Thread32First
+.t:
+    test    eax, eax
+    jz      .close
+    mov     eax, [sasEntry+12]
+    xor     ecx, ecx
+.own:
+    cmp     ecx, [miscPidCount]
+    jae     .nt
+    lea     rdx, [miscPids]
+    cmp     eax, [rdx+rcx*4]
+    je      .mine
+    inc     ecx
+    jmp     .own
+.mine:
+    mov     r8d, [sasEntry+8]
+    mov     ecx, 0x800
+    xor     edx, edx
+    call    OpenThread
+    test    rax, rax
+    jz      .nt
+    mov     rsi, rax
+    mov     qword [sasFt+16], 0
+    mov     qword [sasFt+24], 0
+    lea     rax, [sasFt+24]
+    mov     [rsp+32], rax
+    mov     rcx, rsi
+    lea     rdx, [sasFt]
+    lea     r8, [sasFt+8]
+    lea     r9, [sasFt+16]
+    call    GetThreadTimes
+    mov     rcx, rsi
+    call    CloseHandle
+    mov     rsi, [sasFt+16]
+    add     rsi, [sasFt+24]
+    mov     ebx, [sasEntry+12]
+    shl     rbx, 32
+    mov     eax, [sasEntry+8]
+    or      rbx, rax
+    mov     eax, [sasCurCount]
+    cmp     eax, SAS_MAX
+    jae     .delta
+    shl     eax, 4
+    lea     rdx, [sasCur]
+    mov     [rdx+rax], rbx
+    mov     [rdx+rax+8], rsi
+    inc     dword [sasCurCount]
+.delta:
+    cmp     dword [rsp+120], 0
+    je      .nt
+    lea     rdx, [sasPrev]
+    mov     ecx, [sasPrevCount]
+.find:
+    test    ecx, ecx
+    jz      .rank
+    cmp     [rdx], rbx
+    je      .found
+    add     rdx, 16
+    dec     ecx
+    jmp     .find
+.found:
+    sub     rsi, [rdx+8]
+    jae     .rank
+    xor     esi, esi
+.rank:
+    cmp     rsi, SAS_MIN_CPU
+    jb      .nt
+    cmp     rsi, [sasBest]
+    jbe     .second
+    mov     rax, [sasBest]
+    mov     [sasBest+16], rax
+    mov     rax, [sasBest+8]
+    mov     [sasBest+24], rax
+    mov     [sasBest], rsi
+    mov     [sasBest+8], rbx
+    jmp     .nt
+.second:
+    cmp     rsi, [sasBest+16]
+    jbe     .nt
+    mov     [sasBest+16], rsi
+    mov     [sasBest+24], rbx
+.nt:
+    mov     rcx, rdi
+    lea     rdx, [sasEntry]
+    call    Thread32Next
+    jmp     .t
+.close:
+    mov     rcx, rdi
+    call    CloseHandle
+    mov     ecx, [sasCurCount]
+    mov     [sasPrevCount], ecx
+    shl     ecx, 1
+    lea     rsi, [sasCur]
+    lea     rdi, [sasPrev]
+    rep     movsq
+    cmp     dword [rsp+120], 0
+    je      .done
+    xor     ebx, ebx
+.old:
+    cmp     ebx, 2
+    jae     .pick
+    lea     rax, [sasTids]
+    mov     ecx, [rax+rbx*4]
+    test    ecx, ecx
+    jz      .old_next
+    lea     rax, [sasTidPid]
+    mov     edx, [rax+rbx*4]
+    shl     rdx, 32
+    or      rdx, rcx
+    cmp     rdx, [sasBest+8]
+    je      .old_next
+    cmp     rdx, [sasBest+24]
+    je      .old_next
+    mov     ecx, ebx
+    call    sas_restore
+.old_next:
+    inc     ebx
+    jmp     .old
+.pick:
+    xor     ebx, ebx
+.p:
+    cmp     ebx, 32
+    jae     .done
+    lea     rax, [sasBest+8]
+    mov     rdx, [rax+rbx]
+    test    rdx, rdx
+    jz      .p_next
+    mov     ecx, edx
+    cmp     ecx, [sasTids]
+    je      .p_next
+    cmp     ecx, [sasTids+4]
+    je      .p_next
+    shr     rdx, 32
+    call    sas_boost
+.p_next:
+    add     ebx, 16
+    jmp     .p
+.done:
+    leave4
+
+sas_services:
+    enter4
+    mov     [rsp+128], ecx
+    xor     ecx, ecx
+    xor     edx, edx
+    mov     r8d, 1
+    call    OpenSCManagerA
+    test    rax, rax
+    jz      .done
+    mov     rbx, rax
+    lea     rsi, [sasServices]
+    xor     r12d, r12d
+.loop:
+    mov     rdx, [rsi]
+    test    rdx, rdx
+    jz      .close
+    cmp     dword [rsp+128], 0
+    je      .start
+    mov     rcx, rbx
+    mov     r8d, 0x20
+    call    OpenServiceA
+    test    rax, rax
+    jz      .next
+    mov     rdi, rax
+    mov     rcx, rax
+    mov     edx, 1
+    lea     r8, [miscBuf]
+    call    ControlService
+    test    eax, eax
+    jz      .svc_close
+    bts     dword [sasStopped], r12d
+.svc_close:
+    mov     rcx, rdi
+    call    CloseServiceHandle
+    jmp     .next
+.start:
+    bt      dword [sasStopped], r12d
+    jnc     .next
+    mov     rcx, rbx
+    mov     r8d, 0x10
+    call    OpenServiceA
+    test    rax, rax
+    jz      .next
+    mov     rdi, rax
+    mov     rcx, rax
+    xor     edx, edx
+    xor     r8d, r8d
+    call    StartServiceA
+    mov     rcx, rdi
+    call    CloseServiceHandle
+.next:
+    add     rsi, 8
+    inc     r12d
+    jmp     .loop
+.close:
+    cmp     dword [rsp+128], 0
+    jne     .keep
+    mov     dword [sasStopped], 0
+.keep:
+    mov     rcx, rbx
+    call    CloseServiceHandle
+.done:
+    leave4
+
+sas_procs:
+    enter4
+    mov     [rsp+128], ecx
+    test    ecx, ecx
+    jnz     .scan
+    xor     ebx, ebx
+.res:
+    cmp     ebx, [sasFrozenCount]
+    jae     .res_done
+    lea     rax, [sasFrozen]
+    mov     r8d, [rax+rbx*4]
+    mov     ecx, 0x800
+    xor     edx, edx
+    call    OpenProcess
+    test    rax, rax
+    jz      .rn
+    mov     rsi, rax
+    mov     rcx, rax
+    call    [procResume]
+    mov     rcx, rsi
+    call    CloseHandle
+.rn:
+    inc     ebx
+    jmp     .res
+.res_done:
+    mov     dword [sasFrozenCount], 0
+.scan:
+    mov     ecx, 2
+    xor     edx, edx
+    call    CreateToolhelp32Snapshot
+    cmp     rax, -1
+    je      .done
+    mov     rdi, rax
+    mov     dword [miscEntry], 304
+    mov     rcx, rdi
+    lea     rdx, [miscEntry]
+    call    Process32First
+.p:
+    test    eax, eax
+    jz      .close
+    cmp     dword [rsp+128], 0
+    je      .helpers
+    lea     rcx, [miscEntry+44]
+    lea     rdx, [sasFreeze]
+    call    name_in
+    test    eax, eax
+    jz      .helpers
+    cmp     qword [procSuspend], 0
+    je      .pn
+    cmp     dword [sasFrozenCount], 32
+    jae     .pn
+    mov     r8d, [miscEntry+8]
+    mov     ecx, 0x800
+    xor     edx, edx
+    call    OpenProcess
+    test    rax, rax
+    jz      .pn
+    mov     rsi, rax
+    mov     rcx, rax
+    call    [procSuspend]
+    mov     ebx, eax
+    mov     rcx, rsi
+    call    CloseHandle
+    test    ebx, ebx
+    js      .pn
+    mov     eax, [sasFrozenCount]
+    mov     edx, [miscEntry+8]
+    lea     rcx, [sasFrozen]
+    mov     [rcx+rax*4], edx
+    inc     dword [sasFrozenCount]
+    jmp     .pn
+.helpers:
+    lea     rcx, [miscEntry+44]
+    lea     rdx, [sasHelpers]
+    call    name_in
+    test    eax, eax
+    jz      .bg
+    mov     r8d, [miscEntry+8]
+    mov     ecx, 0x2200
+    xor     edx, edx
+    call    OpenProcess
+    test    rax, rax
+    jz      .pn
+    mov     rsi, rax
+    mov     rcx, rax
+    mov     edx, 0x20
+    cmp     dword [rsp+128], 0
+    je      .hp
+    mov     edx, 0x4000
+.hp:
+    call    SetPriorityClass
+    cmp     dword [eCount], 0
+    je      .hc
+    mov     rcx, rsi
+    xor     edx, edx
+    xor     r8d, r8d
+    cmp     dword [rsp+128], 0
+    je      .hs
+    lea     rdx, [eIds]
+    mov     r8d, [eCount]
+.hs:
+    call    SetProcessDefaultCpuSets
+.hc:
+    mov     rcx, rsi
+    call    CloseHandle
+    jmp     .pn
+.bg:
+    lea     rcx, [miscEntry+44]
+    lea     rdx, [ecoreList]
+    call    name_in
+    test    eax, eax
+    jz      .pn
+    mov     r8d, [miscEntry+8]
+    mov     ecx, 0x1300
+    xor     edx, edx
+    call    OpenProcess
+    test    rax, rax
+    jz      .pn
+    mov     rsi, rax
+    mov     dword [rsp+120], 5
+    cmp     dword [rsp+128], 0
+    je      .mp
+    mov     dword [rsp+120], 2
+.mp:
+    mov     rcx, rsi
+    xor     edx, edx
+    lea     r8, [rsp+120]
+    mov     r9d, 4
+    call    SetProcessInformation
+    cmp     dword [rsp+128], 0
+    je      .bc
+    mov     rcx, rsi
+    mov     rdx, -1
+    mov     r8, -1
+    xor     r9d, r9d
+    call    SetProcessWorkingSetSizeEx
+.bc:
+    mov     rcx, rsi
+    call    CloseHandle
+.pn:
+    mov     rcx, rdi
+    lea     rdx, [miscEntry]
+    call    Process32Next
+    jmp     .p
+.close:
+    mov     rcx, rdi
+    call    CloseHandle
+.done:
+    leave4
+
+sas_session:
+    enter_frame
+    test    ecx, ecx
+    jz      .stop
+    cmp     dword [sasSess], 0
+    jne     .done
+    mov     dword [sasSess], 1
+    mov     ecx, 1
+    call    sas_services
+    mov     ecx, 1
+    call    sas_procs
+    mov     dword [sasPrevCount], 0
+    call    sas_threads
+    mov     dword [sasTick], 3
+    jmp     .done
+.stop:
+    cmp     dword [sasSess], 0
+    je      .done
+    call    sas_unthreads
+    xor     ecx, ecx
+    call    sas_procs
+    xor     ecx, ecx
+    call    sas_services
+    mov     dword [sasSess], 0
+.done:
+    leave_frame
+
+sas_tick:
+    enter_frame
+    cmp     dword [sasSess], 0
+    je      .done
+    inc     dword [sasTick]
+    cmp     dword [sasTick], 5
+    jb      .done
+    mov     dword [sasTick], 0
+    call    sas_threads
+.done:
+    leave_frame
+
+sas_pending_tick:
+    enter_frame
+    cmp     dword [sasPending], 0
+    je      .done
+    call    conf_ready
+    test    eax, eax
+    jz      .done
+    lea     rcx, [sasConf]
+    mov     edx, SAS_CONFS
+    mov     r8d, 'F'
+    cmp     dword [sasPending], 2
+    je      .revert
+    call    conf_apply
+    jmp     .check
+.revert:
+    call    conf_revert
+.check:
+    test    eax, eax
+    jz      .done
+    mov     dword [sasPending], 0
+.done:
+    leave_frame
+
+sas_broadcast:
+    enter_frame
+    mov     qword [rsp+48], 0
+    mov     qword [rsp+40], 1000
+    mov     qword [rsp+32], 2
+    mov     ecx, 0xFFFF
+    mov     edx, 0x1A
+    xor     r8d, r8d
+    lea     r9, [immersiveText]
+    call    SendMessageTimeoutA
+    leave_frame
+
+sas_checks:
+    enter4
+    lea     rcx, [sasMsg]
+    lea     rdx, [msgSasOn]
+    call    lstrcpyA
+    mov     dword [rsp+96], 0
+    mov     dword [rsp+100], 4
+    lea     rax, [rsp+100]
+    mov     [rsp+48], rax
+    lea     rax, [rsp+96]
+    mov     [rsp+40], rax
+    mov     qword [rsp+32], 0
+    mov     rcx, HKEY_LM
+    lea     rdx, [hvciKey]
+    lea     r8, [sasEnabled]
+    mov     r9d, 0x10
+    call    RegGetValueA
+    cmp     dword [rsp+96], 0
+    je      .virt
+    lea     rcx, [sasMsg]
+    lea     rdx, [warnHvci]
+    call    lstrcatA
+.virt:
+    mov     eax, 1
+    cpuid
+    bt      ecx, 31
+    jc      .disk
+    mov     ecx, 21
+    call    IsProcessorFeaturePresent
+    test    eax, eax
+    jnz     .disk
+    lea     rcx, [sasMsg]
+    lea     rdx, [warnVirt]
+    call    lstrcatA
+.disk:
+    lea     rcx, [sysRoot]
+    lea     rdx, [rsp+104]
+    xor     r8d, r8d
+    xor     r9d, r9d
+    call    GetDiskFreeSpaceExA
+    test    eax, eax
+    jz      .done
+    mov     rax, 15 << 30
+    cmp     [rsp+104], rax
+    jae     .done
+    lea     rcx, [sasMsg]
+    lea     rdx, [warnDisk]
+    call    lstrcatA
+.done:
+    lea     rax, [sasMsg]
+    mov     [miscMsg], rax
+    leave4
+
+feat_sas_on:
+    enter_frame
+    bt      dword [specialBits], 0
+    jc      .ok
+    lea     rdx, [msgSasNeed]
+    mov     [miscMsg], rdx
+    xor     eax, eax
+    leave_frame
+.ok:
+    lea     rcx, [sasRegs]
+    mov     edx, SAS_REGS
+    mov     r8d, 'K'
+    call    reg_apply
+    mov     ecx, 1
+    call    sas_power
+    call    sas_broadcast
+    mov     dword [sasPending], 0
+    call    conf_ready
+    test    eax, eax
+    jz      .later
+    lea     rcx, [sasConf]
+    mov     edx, SAS_CONFS
+    mov     r8d, 'F'
+    call    conf_apply
+    jmp     .sess
+.later:
+    cmp     dword [miscPidCount], 0
+    je      .sess
+    mov     dword [sasPending], 1
+.sess:
+    cmp     dword [timerOn], 0
+    je      .msg
+    mov     ecx, 1
+    call    sas_session
+.msg:
+    call    sas_checks
+    cmp     dword [sasPending], 1
+    jne     .ret
+    lea     rcx, [sasMsg]
+    lea     rdx, [msgSasLater]
+    call    lstrcatA
+.ret:
+    mov     eax, 1
+    leave_frame
+
+feat_sas_off:
+    enter_frame
+    xor     ecx, ecx
+    call    sas_session
+    lea     rcx, [sasRegs]
+    mov     edx, SAS_REGS
+    mov     r8d, 'K'
+    call    reg_revert
+    xor     ecx, ecx
+    call    sas_power
+    call    sas_broadcast
+    mov     dword [sasPending], 0
+    call    conf_ready
+    test    eax, eax
+    jz      .later
+    lea     rcx, [sasConf]
+    mov     edx, SAS_CONFS
+    mov     r8d, 'F'
+    call    conf_revert
+    jmp     .msg
+.later:
+    cmp     dword [miscPidCount], 0
+    je      .msg
+    mov     dword [sasPending], 2
+.msg:
+    lea     rdx, [msgSasOff]
     mov     [miscMsg], rdx
     mov     eax, 1
     leave_frame
@@ -1446,7 +2890,7 @@ load_special:
     lea     r8, [specialValue]
     mov     r9d, 0x10
     call    RegGetValueA
-    and     dword [specialBits], 7
+    and     dword [specialBits], 31
     leave_frame
 
 misc_toggle:
@@ -1624,10 +3068,10 @@ misc_timer:
 
 misc_purge:
     enter_frame
+    mov     [rsp+96], ecx
     mov     rax, [procSysInfo]
     test    rax, rax
     jz      .done
-    mov     dword [rsp+96], 4
     mov     ecx, 0x50
     lea     rdx, [rsp+96]
     mov     r8d, 4
@@ -1635,15 +3079,132 @@ misc_purge:
 .done:
     leave_frame
 
+misc_mem_tick:
+    enter_frame
+    cmp     dword [purgeCool], 0
+    je      .count
+    dec     dword [purgeCool]
+.count:
+    inc     dword [purgeTick]
+    cmp     dword [purgeTick], 5
+    jb      .done
+    mov     dword [purgeTick], 0
+    cmp     dword [purgeCool], 0
+    jne     .done
+    mov     rax, [procQuerySys]
+    test    rax, rax
+    jz      .legacy
+    mov     ecx, 0x50
+    lea     rdx, [memList]
+    mov     r8d, 176
+    lea     r9, [rsp+96]
+    call    rax
+    test    eax, eax
+    jnz     .legacy
+    mov     rax, [memList]
+    add     rax, [memList+8]
+    shr     rax, 8
+    cmp     rax, 256
+    jae     .done
+    mov     [rsp+104], rax
+    mov     rax, [memList+40]
+    shr     rax, 8
+    cmp     rax, 128
+    jb      .critical
+    mov     ecx, 5
+    call    misc_purge
+    mov     dword [purgeCool], 30
+    jmp     .done
+.critical:
+    cmp     qword [rsp+104], 128
+    jae     .done
+    mov     ecx, 4
+    call    misc_purge
+    mov     dword [purgeCool], 90
+    jmp     .done
+.legacy:
+    mov     dword [miscMemStatus], 64
+    lea     rcx, [miscMemStatus]
+    call    GlobalMemoryStatusEx
+    cmp     dword [miscMemStatus+4], 75
+    jb      .done
+    mov     ecx, 4
+    call    misc_purge
+    mov     dword [purgeCool], 40
+.done:
+    leave_frame
+
+limit_read:
+    enter_frame
+    mov     rax, [limitQuery]
+    cmp     rax, -1
+    je      .none
+    test    rax, rax
+    jnz     .collect
+    xor     ecx, ecx
+    xor     edx, edx
+    lea     r8, [limitQuery]
+    call    PdhOpenQueryA
+    test    eax, eax
+    jnz     .disable
+    mov     rcx, [limitQuery]
+    lea     rdx, [limitCounterPath]
+    xor     r8d, r8d
+    lea     r9, [limitCounter]
+    call    PdhAddEnglishCounterA
+    test    eax, eax
+    jnz     .disable
+    mov     rcx, [limitQuery]
+    call    PdhCollectQueryData
+    jmp     .none
+.collect:
+    mov     rcx, rax
+    call    PdhCollectQueryData
+    test    eax, eax
+    jnz     .none
+    mov     rcx, [limitCounter]
+    mov     edx, 0x8200
+    xor     r8d, r8d
+    lea     r9, [rsp+96]
+    call    PdhGetFormattedCounterValue
+    test    eax, eax
+    jnz     .none
+    cmp     dword [rsp+96], 0
+    jne     .none
+    cvttsd2si eax, [rsp+104]
+    test    eax, eax
+    jle     .none
+    leave_frame
+.disable:
+    mov     qword [limitQuery], -1
+.none:
+    mov     eax, -1
+    leave_frame
+
+misc_live:
+    enter_frame
+    mov     rax, [procQueryTimer]
+    test    rax, rax
+    jz      .limit
+    lea     rcx, [rsp+96]
+    lea     rdx, [rsp+100]
+    lea     r8, [liveTimer]
+    call    rax
+    test    eax, eax
+    jnz     .limit
+    cmp     dword [liveTimer], 5200
+    jbe     .limit
+    cmp     dword [rsp+100], 5000
+    ja      .limit
+    mov     ecx, 1
+    call    misc_timer
+.limit:
+    call    limit_read
+    mov     [liveLimit], eax
+    leave_frame
+
 misc_tick:
     enter4
-    cmp     dword [activeTab], MISC_TAB
-    jne     .session
-    call    misc_ram
-    call    misc_emu_text
-    mov     rcx, [mainWindow]
-    call    redraw
-.session:
     bt      dword [specialBits], 0
     jnc     .off
     call    misc_scan_players
@@ -1683,26 +3244,29 @@ misc_tick:
     xor     edx, edx
 .cp:
     cmp     edx, ecx
-    jae     .purge
+    jae     .live
     mov     eax, [rsi+rdx*4]
     mov     [rdi+rdx*4], eax
     inc     edx
     jmp     .cp
-.purge:
-    inc     dword [purgeTick]
-    cmp     dword [purgeTick], 40
-    jb      .done
-    mov     dword [purgeTick], 0
-    mov     dword [miscMemStatus], 64
-    lea     rcx, [miscMemStatus]
-    call    GlobalMemoryStatusEx
-    cmp     dword [miscMemStatus+4], 75
-    jb      .done
-    call    misc_purge
-    jmp     .done
+.live:
+    call    misc_live
+    call    egle_guard
+    call    egle_adapt
+    call    sas_tick
+    call    misc_mem_tick
+    jmp     .ui
 .off:
     call    session_stop
     call    emu_pending_tick
+    call    sas_pending_tick
+.ui:
+    cmp     dword [activeTab], MISC_TAB
+    jne     .done
+    call    misc_ram
+    call    misc_emu_text
+    mov     rcx, [mainWindow]
+    call    redraw
 .done:
     leave4
 
@@ -2281,6 +3845,8 @@ session_start:
     call    misc_timer
     mov     dword [timerOn], 1
     mov     dword [purgeTick], 0
+    mov     dword [purgeCool], 0
+    mov     ecx, 4
     call    misc_purge
     lea     rcx, [sessionRegs]
     mov     edx, SESSION_REGS
@@ -2291,12 +3857,26 @@ session_start:
     call    stop_updates
     mov     ecx, 1
     call    background_session
+    bt      dword [specialBits], 4
+    jnc     .egle
+    mov     ecx, 1
+    call    sas_session
+.egle:
+    bt      dword [specialBits], 3
+    jnc     .done
+    mov     ecx, 1
+    call    egle_session
+.done:
     leave_frame
 
 session_stop:
     enter4
     cmp     dword [timerOn], 0
     je      .done
+    xor     ecx, ecx
+    call    sas_session
+    xor     ecx, ecx
+    call    egle_session
     xor     ecx, ecx
     call    misc_timer
     mov     dword [timerOn], 0
@@ -2387,6 +3967,17 @@ misc_cpu:
     mov     r8, rsi
     mov     r9d, [miscSysInfo+32]
     call    wsprintfA
+    xor     eax, eax
+    cpuid
+    cmp     eax, 7
+    jb      .done
+    mov     eax, 7
+    xor     ecx, ecx
+    cpuid
+    bt      ecx, 5
+    jnc     .done
+    mov     dword [eglePause], 1
+.done:
     leave4
 
 misc_gpu:
@@ -2612,6 +4203,13 @@ misc_disk:
 misc_init:
     enter_frame
     call    load_special
+    bt      dword [specialBits], 0
+    jc      .egle
+    btr     dword [specialBits], 3
+    btr     dword [specialBits], 4
+.egle:
+    xor     ecx, ecx
+    call    egle_tier
     lea     rcx, [ntdllName]
     call    GetModuleHandleA
     mov     [rsp+96], rax
@@ -2623,6 +4221,15 @@ misc_init:
     lea     rdx, [sysInfoProcName]
     call    GetProcAddress
     mov     [procSysInfo], rax
+    mov     rcx, [rsp+96]
+    lea     rdx, [querySysName]
+    call    GetProcAddress
+    mov     [procQuerySys], rax
+    mov     rcx, [rsp+96]
+    lea     rdx, [queryTimerName]
+    call    GetProcAddress
+    mov     [procQueryTimer], rax
+    mov     dword [liveLimit], -1
     mov     rcx, [rsp+96]
     lea     rdx, [suspendProcName]
     call    GetProcAddress
@@ -2687,14 +4294,14 @@ misc_show:
     jne     %%color
     mov     r8d, ROW_SELECTED
 %%color:
-    rect    509, 212+%1*58, 959, 264+%1*58
+    rect    509, 212+%1*46, 959, 254+%1*46
     call    fill_box
     bt      dword [specialBits], %1
     jnc     %%off
-    box     ACCENT, 509, 212+%1*58, 512, 264+%1*58
+    box     ACCENT, 509, 212+%1*46, 512, 254+%1*46
 %%off:
-    text_pointer 521, 214+%1*58, 862, 232+%1*58, [spTitles+%1*8], INK, fontStrong, LABEL_MIDDLE | LABEL_ELLIPSIS
-    text_pointer 521, 232+%1*58, 862, 262+%1*58, [spDetails+%1*8], SOFT, fontSmall, LABEL_WRAP
+    text_pointer 521, 213+%1*46, 862, 230+%1*46, [spTitles+%1*8], INK, fontStrong, LABEL_MIDDLE | LABEL_ELLIPSIS
+    text_pointer 521, 230+%1*46, 862, 253+%1*46, [spDetails+%1*8], SOFT, fontSmall, LABEL_WRAP
 %endmacro
 
 paint_misc:
@@ -2714,6 +4321,8 @@ paint_misc:
     sp_row  0
     sp_row  1
     sp_row  2
+    sp_row  3
+    sp_row  4
     box     LOG_BG, 190, 446, 959, 494
     text_label 200, 448, 815, 468, creditLine, INK, fontStrong, LABEL_MIDDLE | LABEL_ELLIPSIS
     text_label 200, 468, 815, 492, licenseLine, SOFT, fontSmall, LABEL_MIDDLE | LABEL_ELLIPSIS
